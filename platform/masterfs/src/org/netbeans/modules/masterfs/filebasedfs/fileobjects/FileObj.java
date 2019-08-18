@@ -16,24 +16,31 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-
 package org.netbeans.modules.masterfs.filebasedfs.fileobjects;
 
 import java.awt.EventQueue;
 import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Duration;
 import java.util.Enumeration;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.netbeans.modules.masterfs.filebasedfs.FileBasedFileSystem;
+import org.netbeans.modules.masterfs.filebasedfs.channels.ChannelKey;
+import org.netbeans.modules.masterfs.filebasedfs.channels.FileChannelPool;
+import org.netbeans.modules.masterfs.filebasedfs.channels.Lease;
+import org.netbeans.modules.masterfs.filebasedfs.channels.iofunction.IOBiConsumer;
+import org.netbeans.modules.masterfs.filebasedfs.channels.iofunction.IORunnable;
 import org.netbeans.modules.masterfs.filebasedfs.naming.FileNaming;
 import org.netbeans.modules.masterfs.filebasedfs.utils.FSException;
 import org.netbeans.modules.masterfs.filebasedfs.utils.FileChangedManager;
@@ -53,17 +60,205 @@ import org.openide.util.BaseUtilities;
  * @author rm111737
  */
 public class FileObj extends BaseFileObj {
+
     static final long serialVersionUID = -1133540210876356809L;
     private static final MutualExclusionSupport<FileObj> MUT_EXCL_SUPPORT = new MutualExclusionSupport<FileObj>();
     private long lastModified = -1;
     private boolean realLastModifiedCached;
     private static final Logger LOGGER = Logger.getLogger(FileObj.class.getName());
 
+    static final class CacheLimiter implements IOBiConsumer<ChannelKey, FileChannel> {
+
+        @Override
+        public void accept(ChannelKey t, FileChannel u) {
+            onExpired(t, u);
+        }
+
+        private void onExpired(ChannelKey t, FileChannel u) {
+//            System.out.println("expire close " + t);
+        }
+
+        private void onOpened(File file, Lease lease, boolean read) {
+//            System.out.println("open " + (read ? "read" : "write") + " " + file);
+        }
+
+        private void onClosed(File file, Lease lease, boolean read) {
+
+        }
+
+    }
+    static CacheLimiter limiter = new CacheLimiter();
+    static FileChannelPool POOL = FileChannelPool.newPool(Duration.ofSeconds(30), limiter);
+
+    static Lease lease(File file, boolean read) throws IOException {
+        if (read) {
+            return POOL.lease(file.toPath(), StandardOpenOption.READ);
+        } else {
+            return POOL.lease(file.toPath(), StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
+        }
+    }
+
+    static InputStream inputStream(File file, IORunnable onClose) throws IOException {
+        Lease lease = lease(file, true);
+        ChannelInputStream str = new ChannelInputStream(file, () -> {
+            limiter.onClosed(file, lease, true);
+            onClose.run();
+        });
+        limiter.onOpened(file, lease, true);
+        return str;
+    }
+
+    static OutputStream outputStream(File file, IORunnable onClose) throws IOException {
+        Lease lease = lease(file, false);
+        ChannelOutputStream out = new ChannelOutputStream(file, () -> {
+            limiter.onClosed(file, lease, false);
+            onClose.run();
+        });
+        limiter.onOpened(file, lease, false);
+        return out;
+    }
+
+    static final class ChannelOutputStream extends OutputStream {
+
+        private final Lease lease;
+        private final IORunnable onClose;
+
+        ChannelOutputStream(File file, IORunnable onClose) throws IOException {
+            this.onClose = onClose;
+            this.lease = POOL.lease(file.toPath(),
+                    StandardOpenOption.WRITE, StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+            ByteBuffer oneByte = ByteBuffer.wrap(new byte[]{(byte) b});
+            lease.use(channel -> {
+                channel.write(oneByte);
+            });
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (onClose != null) {
+                onClose.run();
+            }
+        }
+
+        @Override
+        public void flush() throws IOException {
+            lease.use(ch -> {
+                ch.force(true);
+            });
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+            if (off == 0 && len == b.length) {
+                write(b);
+            } else {
+                ByteBuffer buf = ByteBuffer.wrap(b, off, len);
+                lease.use(channel -> {
+                    channel.write(buf);
+                });
+            }
+            super.write(b, off, len); //To change body of generated methods, choose Tools | Templates.
+        }
+
+        @Override
+        public void write(byte[] b) throws IOException {
+            ByteBuffer buf = ByteBuffer.wrap(b);
+            lease.use(channel -> {
+                channel.write(buf);
+            });
+        }
+    }
+
+    static final class ChannelInputStream extends InputStream {
+
+        private final Lease lease;
+        private long mark = 0;
+        private final IORunnable onClose;
+
+        ChannelInputStream(File file, IORunnable onClose) throws IOException {
+            lease = POOL.lease(file.toPath(), StandardOpenOption.READ);
+            this.onClose = onClose;
+        }
+
+        @Override
+        public int read() throws IOException {
+            return lease.useAsInt(channel -> {
+                ByteBuffer oneByte = ByteBuffer.allocate(1);
+                channel.read(oneByte);
+                oneByte.flip();
+                return oneByte.get();
+            });
+        }
+
+        @Override
+        public boolean markSupported() {
+            return true;
+        }
+
+        @Override
+        public synchronized void mark(int readlimit) {
+            this.mark = lease.position();
+        }
+
+        @Override
+        public int available() throws IOException {
+            return lease.useAsInt(channel -> {
+                return (int) (channel.size() - channel.position());
+            });
+        }
+
+        @Override
+        public synchronized void reset() throws IOException {
+            lease.position(mark);
+        }
+
+        @Override
+        public long skip(long n) throws IOException {
+            long oldPosition = lease.position();
+            lease.position(oldPosition + n);
+            return lease.position() - oldPosition;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            if (len == 0) {
+                return 0;
+            }
+            ByteBuffer buf;
+            if (off == 0 && len == b.length) {
+                buf = ByteBuffer.wrap(b);
+            } else {
+                buf = ByteBuffer.wrap(b, off, len);
+            }
+            return lease.useAsInt(channel -> {
+                return channel.read(buf);
+            });
+        }
+
+        @Override
+        public int read(byte[] b) throws IOException {
+            return lease.useAsInt(channel -> {
+                ByteBuffer buf = ByteBuffer.wrap(b);
+                return channel.read(buf);
+            });
+        }
+
+        @Override
+        public void close() throws IOException {
+            onClose.run();
+        }
+    }
 
     FileObj(final File file, final FileNaming name) {
         super(file, name);
         setLastModified(System.currentTimeMillis(), null, false);
     }
+
     @Override
     protected boolean noFolderListeners() {
         FolderObj p = getExistingParent();
@@ -78,9 +273,9 @@ public class FileObj extends BaseFileObj {
         }
         return getOutputStream(lock, extensions, this);
     }
-    
+
     @Messages(
-        "EXC_INVALID_FILE=File {0} is not valid"
+            "EXC_INVALID_FILE=File {0} is not valid"
     )
     public OutputStream getOutputStream(final FileLock lock, ProvidedExtensions extensions, FileObject mfo) throws IOException {
         if (LOGGER.isLoggable(Level.FINE) && EventQueue.isDispatchThread()) {
@@ -90,7 +285,7 @@ public class FileObj extends BaseFileObj {
         if (!isValid()) {
             FileObject recreated = this.getFileSystem().findResource(getPath());
             if (recreated instanceof FileObj && recreated != this) {
-                return ((FileObj)recreated).getOutputStream(lock, extensions, mfo);
+                return ((FileObj) recreated).getOutputStream(lock, extensions, mfo);
             }
             FileNotFoundException fnf = new FileNotFoundException("FileObject " + this + " is not valid; isFile=" + f.isFile()); //NOI18N
             Exceptions.attachLocalizedMessage(fnf, Bundle.EXC_INVALID_FILE(this));
@@ -100,15 +295,29 @@ public class FileObj extends BaseFileObj {
         if (!BaseUtilities.isWindows() && !f.isFile()) {
             throw new IOException(f.getAbsolutePath());
         }
-        
+
         final MutualExclusionSupport<FileObj>.Closeable closable = MUT_EXCL_SUPPORT.addResource(this, false);
 
         if (extensions != null) {
             extensions.beforeChange(mfo);
         }
-        
+
         OutputStream retVal = null;
         try {
+            if (true) {
+                retVal = outputStream(f, () -> {
+                    if (!closable.isClosed()) {
+                        LOGGER.log(Level.FINEST, "getOutputStream-close");
+                        Long lastModif = MOVED_FILE_TIMESTAMP.get();
+                        if (lastModif != null) {
+                            f.setLastModified(lastModif);
+                        }
+                        setLastModified(f, false);
+                        closable.close();
+                        fireFileChangedEvent(false);
+                    }
+                });
+            }
             final OutputStream delegate = Files.newOutputStream(f.toPath());
             retVal = new OutputStream() {
 
@@ -151,17 +360,17 @@ public class FileObj extends BaseFileObj {
             if (closable != null) {
                 closable.close();
             }
-            FileNotFoundException fex = e;                        
+            FileNotFoundException fex = e;
             if (!FileChangedManager.getInstance().exists(f)) {
-                fex = (FileNotFoundException)new FileNotFoundException(e.getLocalizedMessage()).initCause(e);
+                fex = (FileNotFoundException) new FileNotFoundException(e.getLocalizedMessage()).initCause(e);
             } else if (!f.canWrite()) {
-                fex = (FileNotFoundException)new FileNotFoundException(e.getLocalizedMessage()).initCause(e);
+                fex = (FileNotFoundException) new FileNotFoundException(e.getLocalizedMessage()).initCause(e);
             } else if (f.getParentFile() == null) {
-                fex = (FileNotFoundException)new FileNotFoundException(e.getLocalizedMessage()).initCause(e);
+                fex = (FileNotFoundException) new FileNotFoundException(e.getLocalizedMessage()).initCause(e);
             } else if (!FileChangedManager.getInstance().exists(f.getParentFile())) {
-                fex = (FileNotFoundException)new FileNotFoundException(e.getLocalizedMessage()).initCause(e);
-            } 
-            FSException.annotateException(fex);            
+                fex = (FileNotFoundException) new FileNotFoundException(e.getLocalizedMessage()).initCause(e);
+            }
+            FSException.annotateException(fex);
             throw fex;
         }
         return retVal;
@@ -189,7 +398,7 @@ public class FileObj extends BaseFileObj {
             dumpFileInfo(f, ex);
             throw ex;
         }
-        LOGGER.log(Level.FINEST,"FileObj.getInputStream_after_is_valid");   //NOI18N - Used by unit test
+        LOGGER.log(Level.FINEST, "FileObj.getInputStream_after_is_valid");   //NOI18N - Used by unit test
         if (!f.exists()) {
             FileNotFoundException ex = new FileNotFoundException("Can't read " + f); // NOI18N
             String msg = NbBundle.getMessage(FileBasedFileSystem.class, "EXC_CannotRead", f.getName(), f.getParent()); // NOI18N
@@ -199,18 +408,19 @@ public class FileObj extends BaseFileObj {
         }
         InputStream inputStream;
         MutualExclusionSupport<FileObj>.Closeable closeableReference = null;
-        
+
         try {
             if (BaseUtilities.isWindows()) {
                 // #157056 - don't try to open locked windows files (ntuser.dat, ntuser.dat.log1, ...)
                 if (getNameExt().toLowerCase().startsWith("ntuser.dat")) {  //NOI18N
-                    return new ByteArrayInputStream(new byte[] {});
+                    return new ByteArrayInputStream(new byte[]{});
                 }
             } else if (!f.isFile()) {
-                return new ByteArrayInputStream(new byte[] {});
+                return new ByteArrayInputStream(new byte[]{});
             }
             final MutualExclusionSupport<FileObj>.Closeable closable = MUT_EXCL_SUPPORT.addResource(this, true);
-            closeableReference = closable;            
+            closeableReference = closable;
+            /*
             inputStream = new FileInputStream(f) {
 
                 @Override
@@ -219,25 +429,27 @@ public class FileObj extends BaseFileObj {
                     closable.close();
                 }
             };
+             */
+            inputStream = inputStream(f, closeableReference::close);
         } catch (IOException e) {
             if (closeableReference != null) {
-                closeableReference.close();    
+                closeableReference.close();
             }
-            
-            FileNotFoundException fex = null;                        
+
+            FileNotFoundException fex = null;
             if (!FileChangedManager.getInstance().exists(f)) {
-                fex = (FileNotFoundException)new FileNotFoundException(e.getLocalizedMessage()).initCause(e);
+                fex = (FileNotFoundException) new FileNotFoundException(e.getLocalizedMessage()).initCause(e);
             } else if (!f.canRead()) {
-                fex = (FileNotFoundException)new FileNotFoundException(e.getLocalizedMessage()).initCause(e);
+                fex = (FileNotFoundException) new FileNotFoundException(e.getLocalizedMessage()).initCause(e);
             } else if (f.getParentFile() == null) {
-                fex = (FileNotFoundException)new FileNotFoundException(e.getLocalizedMessage()).initCause(e);
+                fex = (FileNotFoundException) new FileNotFoundException(e.getLocalizedMessage()).initCause(e);
             } else if (!FileChangedManager.getInstance().exists(f.getParentFile())) {
-                fex = (FileNotFoundException)new FileNotFoundException(e.getLocalizedMessage()).initCause(e);
+                fex = (FileNotFoundException) new FileNotFoundException(e.getLocalizedMessage()).initCause(e);
             } else if ((new FileInfo(f)).isUnixSpecialFile()) {
                 fex = (FileNotFoundException) new FileNotFoundException(e.toString()).initCause(e);
             } else {
                 fex = (FileNotFoundException) new FileNotFoundException(e.toString()).initCause(e);
-            }                        
+            }
             FSException.annotateException(fex);
             throw fex;
         }
@@ -260,13 +472,13 @@ public class FileObj extends BaseFileObj {
 
     @Override
     public boolean canWrite() {
-        final File f = getFileName().getFile();        
+        final File f = getFileName().getFile();
         if (!BaseUtilities.isWindows() && !f.isFile()) {
             return false;
-        }                
+        }
         return super.canWrite();
     }
-        
+
     final void setLastModified(long lastModified, File forFile, boolean readOnly) {
         if (this.getLastModified() != 0) { // #130998 - don't set when already invalidated
             if (this.getLastModified() != -1 && !realLastModifiedCached) {
@@ -279,8 +491,7 @@ public class FileObj extends BaseFileObj {
             this.setLastModified(lastModified, readOnly);
         }
     }
-    
-    
+
     public final FileObject createFolder(final String name) throws IOException {
         throw new IOException(getPath());//isn't directory - cannot create neither file nor folder
     }
@@ -288,7 +499,6 @@ public class FileObj extends BaseFileObj {
     public final FileObject createData(final String name, final String ext) throws IOException {
         throw new IOException(getPath());//isn't directory - cannot create neither file nor folder
     }
-
 
     public final FileObject[] getChildren() {
         return new FileObject[]{};//isn't directory - no children
@@ -316,7 +526,7 @@ public class FileObj extends BaseFileObj {
         } else {
             //0 - because java.io.File.lastModififed returns 0 for not existing files
             setLastModified(0, true);
-        }        
+        }
     }
 
     public final boolean isFolder() {
@@ -333,10 +543,10 @@ public class FileObj extends BaseFileObj {
         boolean isModified = (isReal) ? (oldLastModified != getLastModified()) : (oldLastModified < getLastModified());
         if (LOGGER.isLoggable(Level.FINER)) {
             LOGGER.log(
-                Level.FINER,
-                "refreshImpl for {0} isReal: {1} isModified: {2} oldLastModified: {3} lastModified: {4}",
-                new Object[]{
-                    this, isReal, isModified, oldLastModified, getLastModified()}
+                    Level.FINER,
+                    "refreshImpl for {0} isReal: {1} isModified: {2} oldLastModified: {3} lastModified: {4}",
+                    new Object[]{
+                        this, isReal, isModified, oldLastModified, getLastModified()}
             );
         }
         if (fire && oldLastModified != -1 && getLastModified() != -1 && getLastModified() != 0 && isModified) {
@@ -349,14 +559,11 @@ public class FileObj extends BaseFileObj {
             fireFileAttributeChangedEvent("DataEditorSupport.read-only.refresh", null, null);  //NOI18N
         }
     }
-    
+
     @Override
     public final void refresh(final boolean expected) {
         refresh(expected, true);
     }
-    
-
-    
 
     @Override
     public final Enumeration<FileObject> getChildren(final boolean rec) {
@@ -373,14 +580,13 @@ public class FileObj extends BaseFileObj {
         return Enumerations.empty();
     }
 
-
     @Override
     public final FileLock lock() throws IOException {
         final File me = getFileName().getFile();
         if (!getProvidedExtensions().canWrite(me)) {
             FSException.io("EXC_CannotLock", me);
         }
-        try {            
+        try {
             LockForFile result = LockForFile.tryLock(me);
             try {
                 getProvidedExtensions().fileLocked(this);
@@ -390,19 +596,19 @@ public class FileObj extends BaseFileObj {
             }
             return result;
         } catch (FileNotFoundException ex) {
-            FileNotFoundException fex = ex;                        
+            FileNotFoundException fex = ex;
             if (!FileChangedManager.getInstance().exists(me)) {
-                fex = (FileNotFoundException)new FileNotFoundException(ex.getLocalizedMessage()).initCause(ex);
+                fex = (FileNotFoundException) new FileNotFoundException(ex.getLocalizedMessage()).initCause(ex);
             } else if (!me.canRead()) {
-                fex = (FileNotFoundException)new FileNotFoundException(ex.getLocalizedMessage()).initCause(ex);
+                fex = (FileNotFoundException) new FileNotFoundException(ex.getLocalizedMessage()).initCause(ex);
             } else if (!me.canWrite()) {
-                fex = (FileNotFoundException)new FileNotFoundException(ex.getLocalizedMessage()).initCause(ex);
+                fex = (FileNotFoundException) new FileNotFoundException(ex.getLocalizedMessage()).initCause(ex);
             } else if (me.getParentFile() == null) {
-                fex = (FileNotFoundException)new FileNotFoundException(ex.getLocalizedMessage()).initCause(ex);
+                fex = (FileNotFoundException) new FileNotFoundException(ex.getLocalizedMessage()).initCause(ex);
             } else if (!FileChangedManager.getInstance().exists(me.getParentFile())) {
-                fex = (FileNotFoundException)new FileNotFoundException(ex.getLocalizedMessage()).initCause(ex);
-            }                                                             
-            FSException.annotateException(fex);            
+                fex = (FileNotFoundException) new FileNotFoundException(ex.getLocalizedMessage()).initCause(ex);
+            }
+            FSException.annotateException(fex);
             throw fex;
         }
     }
@@ -481,7 +687,7 @@ public class FileObj extends BaseFileObj {
     private boolean thinksReadOnly() {
         return lastModified < -10;
     }
-    
+
     private void markReadOnly(boolean readOnly) {
         if (thinksReadOnly() != readOnly) {
             setLastModified(getLastModified(), readOnly);

@@ -50,11 +50,11 @@ import org.netbeans.modules.masterfs.providers.ProvidedExtensions;
 import org.openide.filesystems.FileLock;
 import org.openide.filesystems.FileObject;
 import org.openide.filesystems.FileStateInvalidException;
+import org.openide.util.BaseUtilities;
 import org.openide.util.Enumerations;
 import org.openide.util.Exceptions;
 import org.openide.util.NbBundle;
 import org.openide.util.NbBundle.Messages;
-import org.openide.util.BaseUtilities;
 
 /**
  * @author rm111737
@@ -88,8 +88,45 @@ public class FileObj extends BaseFileObj {
 
     }
     static CacheLimiter limiter = new CacheLimiter();
-    static FileChannelPool POOL = FileChannelPool.newPool(Duration.ofSeconds(30), limiter);
+    private static final int CLOSE_CHANNELS_AFTER_SECONDS;
+    static {
+        String val = System.getProperty("channel.pool.close.seconds");
+        int value = 30;
+        try {
+            value = Integer.parseInt(val);
+            if (value == -1) {
+                value = 30;
+                throw new NumberFormatException("Negative "
+                        + "channel.pool.close.seconds: '" + val + "'");
+            }
+        } catch (NumberFormatException nfe) {
+            Logger.getLogger(FileObj.class.getName()).log(Level.WARNING,
+                    "Invalid value for channel.pool.close.seconds: {0}", val);
+        }
+        CLOSE_CHANNELS_AFTER_SECONDS = value;
+    }
+    static FileChannelPool POOL = FileChannelPool.newPool(
+            Duration.ofSeconds(CLOSE_CHANNELS_AFTER_SECONDS), limiter);
 
+    /**
+     * For tests, to avoid the dreaded "too many open files".
+     * 
+     * @throws IOException 
+     */
+    public static void closePool() throws IOException {
+        POOL.close();
+    }
+
+    /**
+     * Acquire a lease for a file.  A lease lets multiple callers have
+     * exclusive access to a single FileChannel, with their expected state
+     * being restored on entry.
+     *
+     * @param file The file
+     * @param read Read or write access
+     * @return A new lease
+     * @throws IOException if something goes wrong
+     */
     static Lease lease(File file, boolean read) throws IOException {
         if (read) {
             return POOL.lease(file.toPath(), StandardOpenOption.READ);
@@ -116,6 +153,10 @@ public class FileObj extends BaseFileObj {
         });
         limiter.onOpened(file, lease, false);
         return out;
+    }
+
+    public static boolean exists(File path) {
+        return Files.exists(path.toPath());
     }
 
     @SuppressWarnings("PackageVisibleInnerClass")
@@ -417,7 +458,7 @@ public class FileObj extends BaseFileObj {
             throw ex;
         }
         LOGGER.log(Level.FINEST, "FileObj.getInputStream_after_is_valid");   //NOI18N - Used by unit test
-        if (!f.exists()) {
+        if (!exists(f)) {
             FileNotFoundException ex = new FileNotFoundException("Can't read " + f); // NOI18N
             String msg = NbBundle.getMessage(FileBasedFileSystem.class, "EXC_CannotRead", f.getName(), f.getParent()); // NOI18N
             Exceptions.attachLocalizedMessage(ex, msg);
@@ -686,11 +727,11 @@ public class FileObj extends BaseFileObj {
                     lastMod = 1;
                 }
             } catch (UnsupportedOperationException ex) {
-                if (file.exists()) {
+                if (!exists(file)) {
                     lastMod = 1;
                 }
             } catch (SecurityException ex) {
-                if (file.exists()) {
+                if (!exists(file)) {
                     lastMod = 1;
                 }
             } catch (IOException ex) {

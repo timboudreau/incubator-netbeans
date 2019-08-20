@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.netbeans.modules.masterfs.filebasedfs.children.ChildrenSupport;
+import org.netbeans.modules.masterfs.filebasedfs.fileobjects.FileObj;
 import org.netbeans.modules.masterfs.filebasedfs.naming.NamingFactory;
 import org.openide.util.Lookup;
 import org.openide.util.lookup.ServiceProvider;
@@ -125,7 +126,7 @@ public class FileChangedManager extends SecurityManager {
     public boolean exists(File file) {
         long time = 0;
         assert (time = System.currentTimeMillis()) >= Long.MIN_VALUE;
-        boolean retval = file.exists();
+        boolean retval = FileObj.exists(file);
         if (time > 0) {
             time = System.currentTimeMillis() - time;
             if (time > 500) {

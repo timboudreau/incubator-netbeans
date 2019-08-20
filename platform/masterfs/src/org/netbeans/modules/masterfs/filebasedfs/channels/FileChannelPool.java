@@ -162,36 +162,6 @@ public final class FileChannelPool implements AutoCloseable {
         return DEFAULT_POOL;
     }
 
-    public final boolean hasOpenStream(Path path) {
-        ChannelKey k = new ChannelKey(path, EnumSet.of(StandardOpenOption.READ), false);
-        try {
-            Optional<FileChannel> ch = channels.getOptional(k);
-            if (ch.isPresent()) {
-                FileChannel channel = ch.get();
-                if (channel.isOpen()) {
-                    channel.position();
-                    return true;
-                }
-            }
-        } catch (IOException ex) {
-
-        }
-        k = new ChannelKey(path, EnumSet.of(StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING), false);
-        try {
-            Optional<FileChannel> ch = channels.getOptional(k);
-            if (ch.isPresent()) {
-                FileChannel channel = ch.get();
-                if (channel.isOpen()) {
-                    channel.position();
-                    return true;
-                }
-            }
-        } catch (IOException ex) {
-
-        }
-        return false;
-    }
-
     private final IOBiConsumer<ChannelKey, FileChannel> expirationHelper;
 
     private FileChannelPool(long leaseTimeout, IOBiConsumer<ChannelKey, FileChannel> expirationHelper) {

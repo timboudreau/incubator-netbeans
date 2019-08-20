@@ -118,6 +118,7 @@ public class FileObj extends BaseFileObj {
         return out;
     }
 
+    @SuppressWarnings("PackageVisibleInnerClass")
     static final class ChannelOutputStream extends OutputStream {
 
         private final Lease lease;
@@ -128,6 +129,11 @@ public class FileObj extends BaseFileObj {
             this.lease = POOL.lease(file.toPath(),
                     StandardOpenOption.WRITE, StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING);
+        }
+
+        @Override
+        public String toString() {
+            return ChannelOutputStream.class.getSimpleName() + "(" + lease + ")";
         }
 
         @Override
@@ -174,10 +180,11 @@ public class FileObj extends BaseFileObj {
         }
     }
 
+    @SuppressWarnings("PackageVisibleInnerClass")
     static final class ChannelInputStream extends InputStream {
 
         private final Lease lease;
-        private long mark = 0;
+        private long mark = -1;
         private final IORunnable onClose;
 
         ChannelInputStream(File file, IORunnable onClose) throws IOException {
@@ -186,12 +193,20 @@ public class FileObj extends BaseFileObj {
         }
 
         @Override
+        public String toString() {
+            return ChannelInputStream.class.getSimpleName() + "(" + lease + ")";
+        }
+
+        @Override
         public int read() throws IOException {
             return lease.useAsInt(channel -> {
                 ByteBuffer oneByte = ByteBuffer.allocate(1);
-                channel.read(oneByte);
-                oneByte.flip();
-                return oneByte.get();
+                int bytes = channel.read(oneByte);
+                if (bytes == 1) {
+                    oneByte.flip();
+                    return oneByte.get() & 0xFF;
+                }
+                return -1;
             });
         }
 
@@ -214,6 +229,9 @@ public class FileObj extends BaseFileObj {
 
         @Override
         public synchronized void reset() throws IOException {
+            if (mark == -1) {
+                throw new IOException("Mark not set");
+            }
             lease.position(mark);
         }
 

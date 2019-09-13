@@ -24,6 +24,7 @@
 package org.netbeans.modules.masterfs.filebasedfs.channels.cache;
 
 import java.util.function.BiConsumer;
+import java.util.function.LongPredicate;
 
 /**
  * A straightforward cache with expiring entries, capable of conversion into a
@@ -48,7 +49,7 @@ public interface TimedCache<T, R, E extends Exception> extends Cache<T, R, E> {
      * @return A cache
      */
     static <T, R, E extends Exception> TimedCache<T, R, E> createThrowing(long ttl,
-                                                                          Answerer<T, R, E> answerer) {
+            Answerer<T, R, E> answerer) {
         return new TimedCacheImpl<>(ttl, answerer);
     }
 
@@ -64,10 +65,9 @@ public interface TimedCache<T, R, E extends Exception> extends Cache<T, R, E> {
      * @return A cache
      */
     static <T, R, E extends Exception> TimedCache<T, R, E> createThrowing(long ttl,
-                                                                          Answerer<T, R, E> answerer, MapSupplier<T> backingStoreFactory) {
+            Answerer<T, R, E> answerer, MapSupplier<T> backingStoreFactory) {
         return new TimedCacheImpl<>(ttl, answerer, backingStoreFactory);
     }
-
 
     /**
      * Create a cache which does not throw a checked exception on lookup.
@@ -81,9 +81,10 @@ public interface TimedCache<T, R, E extends Exception> extends Cache<T, R, E> {
      * @return A cache
      */
     static <T, R> TimedCache<T, R, RuntimeException> create(long ttl,
-                                                            Answerer<T, R, RuntimeException> answerer) {
+            Answerer<T, R, RuntimeException> answerer) {
         return new TimedCacheImpl<>(ttl, answerer);
     }
+
     /**
      * Create a cache which does not throw a checked exception on lookup.
      *
@@ -123,4 +124,14 @@ public interface TimedCache<T, R, E extends Exception> extends Cache<T, R, E> {
      * @return A bidirectional cache with the same contents as this one
      */
     TimedBidiCache<T, R, E> toBidiCache(Answerer<R, T, E> reverseAnswerer);
+
+    /**
+     * Immediately expire 1/4 of the elements in the cache.
+     *
+     * @param pred
+     * @return
+     */
+    int expireSome(LongPredicate pred);
+
+    int expireSome(LongPredicate pred, int divisor);
 }

@@ -1,6 +1,9 @@
 package org.netbeans.modules.masterfs.filebasedfs.channels.cache;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -8,6 +11,7 @@ import java.util.concurrent.Delayed;
 import java.util.concurrent.TimeUnit;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import java.util.function.BiConsumer;
+import java.util.function.LongPredicate;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -61,6 +65,25 @@ class TimedCacheImpl<T, R, E extends Exception> implements TimedCache<T, R, E> {
     public String toString() {
         return toString(new StringBuilder(getClass().getSimpleName())
                 .append('{')).append('}').toString();
+    }
+
+    public int expireSome(LongPredicate pred) {
+        return expireSome(pred, 4);
+    }
+
+    public int expireSome(LongPredicate pred, int divisor) {
+        List<CacheEntry> entries = new ArrayList<>(cache.values());
+        Collections.sort(entries);
+        int total = entries.size() / divisor;
+        int count = 0;
+        for (int i = 0; i < total; i++) {
+            CacheEntry entry = entries.get(i);
+            if (pred.test(entry.getDelay(MILLISECONDS))) {
+                count++;
+                entry.expire();
+            }
+        }
+        return count;
     }
 
     StringBuilder toString(StringBuilder sb) {

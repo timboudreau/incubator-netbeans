@@ -25,7 +25,9 @@ package org.netbeans.modules.masterfs.filebasedfs.channels;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.channels.ClosedByInterruptException;
 import java.nio.channels.FileChannel;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
@@ -209,16 +211,32 @@ public final class FileChannelPool implements AutoCloseable {
     }
 
     private FileChannel newChannelFor(ChannelKey key) throws IOException {
-        if (key.randomAccess) {
-            String args = toRandomAccessFileArgs(key.opts);
-            RandomAccessFile file = new RandomAccessFile(key.path.toFile(), args);
-            FileChannel result = file.getChannel();
-            if (key.opts.contains(StandardOpenOption.APPEND)) {
-                result.position(file.length());
+        try {
+            if (key.randomAccess) {
+                String args = toRandomAccessFileArgs(key.opts);
+                RandomAccessFile file = new RandomAccessFile(key.path.toFile(), args);
+                FileChannel result = file.getChannel();
+                if (key.opts.contains(StandardOpenOption.APPEND)) {
+                    result.position(file.length());
+                }
+                return result;
             }
-            return result;
+            return open(key.path, key.opts, key.attrs);
+        } catch (FileSystemException ioe) {
+            if (ioe.getMessage().contains("Too many open")) {
+                channels.expireSome(remainingTtlMillis -> {
+                    return true;
+                }, 3);
+                try {
+                    Thread.sleep(250);
+                } catch (InterruptedException ex) {
+
+                }
+                return newChannelFor(key);
+            } else {
+                throw ioe;
+            }
         }
-        return open(key.path, key.opts, key.attrs);
     }
 
     private String toRandomAccessFileArgs(Set<StandardOpenOption> opts) {
@@ -456,5 +474,10 @@ public final class FileChannelPool implements AutoCloseable {
         } finally {
             lock.unlock();
         }
+    }
+
+    FileChannel channelUnexpectedlyClosed(ChannelKey key, ClosedByInterruptException ex) throws IOException {
+        channels.remove(key);
+        return get(key);
     }
 }

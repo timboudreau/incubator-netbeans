@@ -89,15 +89,18 @@ public class FileObj extends BaseFileObj {
     }
     static CacheLimiter limiter = new CacheLimiter();
     private static final int CLOSE_CHANNELS_AFTER_SECONDS;
+
     static {
         String val = System.getProperty("channel.pool.close.seconds");
-        int value = 30;
+        int value = 20;
         try {
-            value = Integer.parseInt(val);
-            if (value == -1) {
-                value = 30;
-                throw new NumberFormatException("Negative "
-                        + "channel.pool.close.seconds: '" + val + "'");
+            if (val != null) {
+                value = Integer.parseInt(val);
+                if (value == -1) {
+                    value = 30;
+                    throw new NumberFormatException("Negative "
+                            + "channel.pool.close.seconds: '" + val + "'");
+                }
             }
         } catch (NumberFormatException nfe) {
             Logger.getLogger(FileObj.class.getName()).log(Level.WARNING,
@@ -110,17 +113,17 @@ public class FileObj extends BaseFileObj {
 
     /**
      * For tests, to avoid the dreaded "too many open files".
-     * 
-     * @throws IOException 
+     *
+     * @throws IOException
      */
     public static void closePool() throws IOException {
         POOL.close();
     }
 
     /**
-     * Acquire a lease for a file.  A lease lets multiple callers have
-     * exclusive access to a single FileChannel, with their expected state
-     * being restored on entry.
+     * Acquire a lease for a file. A lease lets multiple callers have exclusive
+     * access to a single FileChannel, with their expected state being restored
+     * on entry.
      *
      * @param file The file
      * @param read Read or write access

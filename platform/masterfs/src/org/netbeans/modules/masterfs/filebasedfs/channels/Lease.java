@@ -24,6 +24,7 @@
 package org.netbeans.modules.masterfs.filebasedfs.channels;
 
 import java.io.IOException;
+import java.nio.channels.ClosedByInterruptException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
@@ -450,10 +451,38 @@ public final class Lease {
             try {
                 boolean thrown = false;
                 long oldPosition = position;
-                positionChannel(channel);
                 try {
-                    int result = c.applyAsInt(channel);
-                    pool.checkUnexpectedClose(key, this, channel, c);
+                    positionChannel(channel);
+                } catch (ClosedByInterruptException ex) {
+                    channel = pool.channelUnexpectedlyClosed(key, ex);
+                    if (key.isWrite() && lock != null) {
+                        try {
+                            lock.release();
+                        } catch (Exception e1) {
+                            ex.printStackTrace();
+                        }
+                        lock = acquireLock(channel);
+                    }
+                    positionChannel(channel);
+                }
+                try {
+                    int result;
+                    try {
+                        result = c.applyAsInt(channel);
+                        pool.checkUnexpectedClose(key, this, channel, c);
+                    } catch (ClosedByInterruptException ex) {
+                        channel = pool.channelUnexpectedlyClosed(key, ex);
+                        result = c.applyAsInt(channel);
+                        if (key.isWrite() && lock != null) {
+                            try {
+                                lock.release();
+                            } catch (Exception e1) {
+                                ex.printStackTrace();
+                            }
+                            lock = acquireLock(channel);
+                        }
+                        positionChannel(channel);
+                    }
                     return result;
                 } catch (LeaseException de) {
                     de.setLease(this, oldPosition);

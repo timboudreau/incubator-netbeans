@@ -26,6 +26,7 @@ package org.netbeans.modules.masterfs.filebasedfs.channels.cache;
 import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.function.LongPredicate;
 
 /**
  * A bi-directional variant of TimedCache, which allows querying for keys or
@@ -159,6 +160,16 @@ public interface TimedBidiCache<T, R, E extends Exception> extends TimedCache<T,
             @Override
             public Optional<R> cachedKey(T value) {
                 return TimedBidiCache.this.cachedValue(value);
+            }
+
+            @Override
+            public int expireSome(LongPredicate pred) {
+                throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+            }
+
+            @Override
+            public int expireSome(LongPredicate pred, int divisor) {
+                throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
             }
         };
     }

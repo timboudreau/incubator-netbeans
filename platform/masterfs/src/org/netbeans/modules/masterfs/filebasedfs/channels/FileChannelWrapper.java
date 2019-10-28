@@ -30,6 +30,8 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
+import org.netbeans.modules.masterfs.filebasedfs.channels.iofunction.IOIntSupplier;
+import org.netbeans.modules.masterfs.filebasedfs.channels.iofunction.IOLongSupplier;
 
 /**
  * A wrapper for FileChannels which prevents clients from closing them, which
@@ -40,6 +42,7 @@ import java.nio.channels.WritableByteChannel;
 final class FileChannelWrapper extends FileChannel {
 
     private final FileChannel channel;
+    private long safePosition;
 
     FileChannelWrapper(FileChannel channel) {
         this.channel = channel;
@@ -52,45 +55,131 @@ final class FileChannelWrapper extends FileChannel {
         return ch;
     }
 
+    int updatingPositionInt(IOIntSupplier supp) throws IOException {
+        int add = supp.getAsInt();
+        if (add > 0) {
+            synchronized (this) {
+                safePosition += add;
+            }
+        }
+        return add;
+    }
+
+    long updatingPosition(IOLongSupplier supp) throws IOException {
+        long add = supp.getAsLong();
+        if (add > 0) {
+            synchronized (this) {
+                safePosition += add;
+            }
+        }
+        return add;
+    }
+
     @Override
     public int read(ByteBuffer dst) throws IOException {
-        return channel.read(dst);
+        boolean wasInterrupted = Thread.interrupted();
+        try {
+            return updatingPositionInt(() -> channel.read(dst));
+        } finally {
+            if (wasInterrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     @Override
     public long read(ByteBuffer[] dsts, int offset, int length) throws IOException {
-        return channel.read(dsts, offset, length);
+        boolean wasInterrupted = Thread.interrupted();
+        try {
+            return updatingPosition(() -> channel.read(dsts, offset, length));
+        } finally {
+            if (wasInterrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
     }
 
     @Override
     public int write(ByteBuffer src) throws IOException {
-        return channel.write(src);
+        boolean wasInterrupted = Thread.interrupted();
+        try {
+            return updatingPositionInt(() -> channel.write(src));
+        } finally {
+            if (wasInterrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     @Override
     public long write(ByteBuffer[] srcs, int offset, int length) throws IOException {
-        return channel.write(srcs, offset, length);
+        boolean wasInterrupted = Thread.interrupted();
+        try {
+            return updatingPosition(() -> channel.write(srcs, offset, length));
+        } finally {
+            if (wasInterrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     @Override
     public long position() throws IOException {
-        return channel.position();
+//        boolean wasInterrupted = Thread.interrupted();
+//        try {
+        synchronized (this) {
+            return safePosition;
+        }
+//            return channel.position();
+//        } finally {
+//            if (wasInterrupted) {
+//                Thread.currentThread().interrupt();
+//            }
+//        }
     }
 
     @Override
     public FileChannel position(long newPosition) throws IOException {
-        channel.position(newPosition);
+        boolean wasInterrupted = Thread.interrupted();
+        try {
+            channel.position(newPosition);
+            synchronized (this) {
+                safePosition = newPosition;
+            }
+        } finally {
+            if (wasInterrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
         return this;
     }
 
     @Override
     public long size() throws IOException {
-        return channel.size();
+        boolean wasInterrupted = Thread.interrupted();
+        try {
+            return channel.size();
+        } finally {
+            if (wasInterrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     @Override
     public FileChannel truncate(long size) throws IOException {
-        channel.truncate(size);
+        boolean wasInterrupted = Thread.interrupted();
+        try {
+            channel.truncate(size);
+            synchronized (this) {
+                safePosition = channel.position();
+            }
+        } finally {
+            if (wasInterrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
         return this;
     }
 
@@ -101,22 +190,50 @@ final class FileChannelWrapper extends FileChannel {
 
     @Override
     public long transferTo(long position, long count, WritableByteChannel target) throws IOException {
-        return channel.transferTo(position, count, target);
+        boolean wasInterrupted = Thread.interrupted();
+        try {
+            return channel.transferTo(position, count, target);
+        } finally {
+            if (wasInterrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     @Override
     public long transferFrom(ReadableByteChannel src, long position, long count) throws IOException {
-        return channel.transferFrom(src, position, count);
+        boolean wasInterrupted = Thread.interrupted();
+        try {
+            return channel.transferFrom(src, position, count);
+        } finally {
+            if (wasInterrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     @Override
     public int read(ByteBuffer dst, long position) throws IOException {
-        return channel.read(dst, position);
+        boolean wasInterrupted = Thread.interrupted();
+        try {
+            return updatingPositionInt(() -> channel.read(dst, position));
+        } finally {
+            if (wasInterrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     @Override
     public int write(ByteBuffer src, long position) throws IOException {
-        return channel.write(src, position);
+        boolean wasInterrupted = Thread.interrupted();
+        try {
+            return updatingPositionInt(() -> channel.write(src, position));
+        } finally {
+            if (wasInterrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     @Override

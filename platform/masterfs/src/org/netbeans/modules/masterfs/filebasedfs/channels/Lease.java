@@ -265,7 +265,7 @@ public final class Lease {
      * @param c A callback to receive the callback
      * @throws IOException If something goes wrong
      */
-    public synchronized void use(IOConsumer<FileChannel> c) throws IOException {
+    public synchronized void xuse(IOConsumer<FileChannel> c) throws IOException {
         pool.underLock(key, () -> {
             FileChannel channel = pool.get(key);
             long oldPosition = position;
@@ -299,6 +299,41 @@ public final class Lease {
                     lock.release();
                 }
             }
+        });
+    }
+
+    public synchronized void use(IOConsumer<FileChannel> c) throws IOException {
+        pool.underLock(key, () -> {
+            FileChannel channel = pool.get(key);
+            long oldPosition = position;
+            LockHolder lock = new LockHolder();
+            boolean thrown = false;
+            boolean[] reinterrupt = new boolean[]{lock.acquire(channel)};
+            try {
+                position(reinterrupt, lock, channel, (rein, ch, lck) -> {
+                    c.accept(ch);
+                });
+            } catch (IOException ioe) {
+                thrown = true;
+                try {
+                    if (channel.isOpen()) {
+                        channel.position(oldPosition);
+                    }
+                } catch (IOException ioe2) {
+                    ioe.addSuppressed(ioe2);
+                }
+                throw ioe;
+            } finally {
+                if (thrown) {
+                    position = oldPosition;
+                } else {
+                    if (channel.isOpen()) {
+                        position = channel.position();
+                    }
+                }
+                lock.release();
+            }
+            return null;
         });
     }
 
@@ -442,69 +477,167 @@ public final class Lease {
      * @throws IOException If something goes wrong
      */
     public synchronized int useAsInt(IOToIntFunction<FileChannel> c) throws IOException {
-        return pool.underLock(key, () -> {
-            FileChannel channel = pool.get(key);
-            FileLock lock = null;
-            if (key.isWrite()) {
-                lock = acquireLock(channel);
-            }
+        int[] result = new int[1];
+        pool.underLock(key, () -> {
+            FileChannel ch = pool.get(key);
+            LockHolder lck = new LockHolder();
+            boolean[] reinterrupt = new boolean[]{lck.acquire(ch) | Thread.interrupted()};
             try {
-                boolean thrown = false;
-                long oldPosition = position;
-                try {
-                    positionChannel(channel);
-                } catch (ClosedByInterruptException ex) {
-                    channel = pool.channelUnexpectedlyClosed(key, ex);
-                    if (key.isWrite() && lock != null) {
-                        try {
-                            lock.release();
-                        } catch (Exception e1) {
-                            ex.printStackTrace();
-                        }
-                        lock = acquireLock(channel);
-                    }
-                    positionChannel(channel);
-                }
-                try {
-                    int result;
-                    try {
-                        result = c.applyAsInt(channel);
-                        pool.checkUnexpectedClose(key, this, channel, c);
-                    } catch (ClosedByInterruptException ex) {
-                        channel = pool.channelUnexpectedlyClosed(key, ex);
-                        result = c.applyAsInt(channel);
-                        if (key.isWrite() && lock != null) {
-                            try {
-                                lock.release();
-                            } catch (Exception e1) {
-                                ex.printStackTrace();
-                            }
-                            lock = acquireLock(channel);
-                        }
-                        positionChannel(channel);
-                    }
-                    return result;
-                } catch (LeaseException de) {
-                    de.setLease(this, oldPosition);
-                    throw de;
-                } catch (IOException ioe) {
-                    thrown = true;
-                    throw ioe;
-                } finally {
-                    if (thrown) {
-                        position = oldPosition;
-                    } else {
-                        if (channel.isOpen()) {
-                            position = channel.position();
-                        }
-                    }
-                }
+                position(reinterrupt, lck, ch, (wasInterrupted, channel, lock) -> {
+                    result[0] = doUseAsInt(wasInterrupted, channel, lock, c);
+                });
             } finally {
-                if (lock != null) {
-                    lock.release();
+                lck.release();
+                if (reinterrupt[0]) {
+                    Thread.currentThread().interrupt();
                 }
             }
         });
+        return result[0];
     }
 
+    @SuppressWarnings("AssignmentReplaceableWithOperatorAssignment")
+    private void position(boolean[] reinterrupt, LockHolder lock, FileChannel channel, ChannelUser c) throws IOException {
+        reinterrupt[0] |= Thread.interrupted();
+        long oldPosition = position;
+        // Note the use of bitwise rather than logical OR is intentional
+        // we do not want the second test optimized out as it has important
+        // side effects
+        try {
+            for (;;) {
+                try {
+                    positionChannel(channel);
+                    break;
+                } catch (ClosedByInterruptException ex) {
+                    reinterrupt[0] = true | Thread.interrupted();
+                    channel = pool.channelUnexpectedlyClosed(key, ex);
+                    reinterrupt[0] = reinterrupt[0] | lock.replace(channel);
+                }
+            }
+        } catch (IOException ioe) {
+            if (channel != null && channel.isOpen()) {
+                try {
+                    channel.position(oldPosition);
+                } catch (IOException ioe2) {
+                    ioe.addSuppressed(ioe2);
+                };
+            }
+            if (lock != null) {
+                lock.release();
+            }
+            throw ioe;
+        }
+        c.useChannel(reinterrupt, channel, lock);
+    }
+
+    interface ChannelUser {
+
+        void useChannel(boolean[] wasInterrupted, FileChannel channel, LockHolder lock) throws IOException;
+    }
+
+    class LockHolder {
+
+        private FileLock lock;
+
+        boolean acquire(FileChannel channel) throws IOException {
+            if (key.isWrite() && lock == null) {
+                boolean result = Thread.interrupted();
+                try {
+                    lock = acquireLock(channel);
+                } catch (ClosedByInterruptException ex) {
+                    if (lock != null) {
+                        lock.release();
+                    }
+                    result = true | Thread.interrupted();
+                    lock = acquireLock(channel);
+                }
+                return result;
+            }
+            return false;
+        }
+
+        boolean replace(FileChannel ch) throws IOException {
+            if (lock != null) {
+                lock.release();
+                lock = null;
+            }
+            return acquire(ch);
+        }
+
+        void release() throws IOException {
+            if (lock != null) {
+                try {
+                    lock.release();
+                } finally {
+                    lock = null;
+                }
+            }
+        }
+    }
+
+    private int doUseAsInt(boolean[] wasInterrupted, FileChannel channel, LockHolder lock, IOToIntFunction<FileChannel> c) throws IOException {
+        boolean thrown = false;
+        long oldPosition = position;
+        try {
+            try {
+                int result = c.applyAsInt(channel);
+                pool.checkUnexpectedClose(key, this, channel, c);
+                return result;
+            } catch (ClosedByInterruptException ex) {
+                wasInterrupted[0] = true;
+                Thread.interrupted();
+                channel = pool.channelUnexpectedlyClosed(key, ex);
+                lock.replace(channel);
+                try {
+                    for (;;) {
+                        try {
+                            positionChannel(channel);
+                            break;
+                        } catch (ClosedByInterruptException e2) {
+                            wasInterrupted[0] = true;
+                            Thread.interrupted();
+                            channel = pool.channelUnexpectedlyClosed(key, e2);
+                            lock.replace(channel);
+                        }
+                    }
+                    return c.applyAsInt(channel);
+                } catch (ClosedByInterruptException ex2) {
+                    wasInterrupted[0] = true;
+                    Thread.interrupted();
+                    channel = pool.channelUnexpectedlyClosed(key, ex);
+                    lock.replace(channel);
+                    for (;;) {
+                        try {
+                            positionChannel(channel);
+                            break;
+                        } catch (ClosedByInterruptException e2) {
+                            wasInterrupted[0] = true;
+                            Thread.interrupted();
+                            channel = pool.channelUnexpectedlyClosed(key, e2);
+                            lock.replace(channel);
+                        }
+                    }
+                    return c.applyAsInt(channel);
+                }
+            }
+        } catch (LeaseException de) {
+            de.setLease(this, oldPosition);
+            throw de;
+        } catch (IOException ioe) {
+            thrown = true;
+            throw ioe;
+        } finally {
+            if (thrown) {
+                position = oldPosition;
+            } else if (channel.isOpen()) {
+                try {
+                    position = channel.position();
+                } catch (ClosedByInterruptException e) {
+                    wasInterrupted[0] = true;
+                    Thread.interrupted();
+                    channel = pool.channelUnexpectedlyClosed(key, e);
+                }
+            }
+        }
+    }
 }

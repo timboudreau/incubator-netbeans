@@ -53,7 +53,7 @@
             </p>
         </description>
         <class name="ProxyLookup" package="org.openide.util.lookup"/>
-        <issue number="pending"/>
+        <issue number="NETBEANS-2232"/>
     </change>    
     <change id="AbstractProcessorSupportedSource">
         <api name="lookup"/>

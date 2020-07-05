@@ -25,6 +25,36 @@
     <apidef name="lookup">Lookup API</apidef>
 </apidefs>
 <changes>
+    <change id="ProxyLookupFactoryMethods">
+        <api name="lookup"/>
+        <summary>Declare support for all source levels.</summary>
+        <version major="8" minor="43"/>
+        <date year="2020" month="7" day="4"/>
+        <author login="tboudreau"/>
+        <compatibility addition="yes" source="compatible" semantic="compatible" binary="compatible"/>
+        <description>
+            <p>
+                One of the most common uses of ProxyLookup is to dynamically 
+                change the set of lookups being delegated to.  The objection
+                to exposing the <code>setLookups()</code> method is straightforward -
+                it would be inviting <i>clients</i> of such a Lookup to call it.
+            </p><p>
+                A cursory grep of NetBeans' own sources finds <b>53 such subclasses</b>
+                (<code>find . -name "*.java" | xargs grep -i "extends ProxyLookup" 
+                | grep -vi test | wc -l</code>) which could potentially be eliminated
+                (137 instances if test classes are included).
+            </p><p>
+                This patch solves that problem, adding two static methods to
+                <code>ProxyLookup</code> which take a 
+                <code>Consumer&lt;Consumer&lt;Lookup[]&gt;&gt;</code>
+                or a <code>BiConsumer&lt;Consumer&lt;Executor, Lookup[]&gt;&gt;</code>
+                which is passed a handle to these methods without exposing them
+                to any code other than the caller.
+            </p>
+        </description>
+        <class name="ProxyLookup" package="org.openide.util.lookup"/>
+        <issue number="pending"/>
+    </change>    
     <change id="AbstractProcessorSupportedSource">
         <api name="lookup"/>
         <summary>Declare support for all source levels.</summary>

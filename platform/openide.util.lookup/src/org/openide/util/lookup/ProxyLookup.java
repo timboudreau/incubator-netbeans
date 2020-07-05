@@ -36,6 +36,8 @@ import java.util.Map.Entry;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.openide.util.Lookup;
@@ -89,7 +91,53 @@ public class ProxyLookup extends Lookup {
         }
         return map.keySet();
     }
-    
+
+    /**
+     * Create a ProxyLookup whose contents can be set dynamically without
+     * exposing the setter to consumers of the lookup; the passed
+     * @link{java.util.function.Consumer} is called back before this method
+     * exits with a consumer which can be used to set the set of Lookups
+     * the returned Lookup proxies.
+     *
+     * @param setterConsumer A Consumer which will be passed a handle
+     * to the <code>setLookups(Lookup[])</code> method of the returned instance
+     * @param initial The initial lookups to proxy, if any
+     * @since 8.43
+     * @return A lookup that delegates to those passed or those last passed to
+     * the consumer
+     */
+    public static Lookup create(Consumer<Consumer<Lookup[]>> setterConsumer,
+            Lookup... initial) {
+        ProxyLookup result = new ProxyLookup(initial);
+        setterConsumer.accept(result::setLookups);
+        return result;
+    }
+
+    /**
+     * Create a ProxyLookup whose contents can be set dynamically without
+     * exposing the setter to consumers of the lookup; the passed
+     * @link{java.util.function.BiConsumer} is called back before this method
+     * exits with a consumer which can be used to set the set of Lookups
+     * the returned Lookup proxies, notifying in the passed executor.
+     * As with <code>ProxyLookup.setLookups(Executor, Lookup...)</code> the
+     * exeutor may be null to obtain the default notification behavior.
+     *
+     * @param setterConsumer A BiConsumer which will be passed a handle to the
+     * <code>setLookups(Executor, Lookup[])</code> method of the returned
+     * instance
+     * @param initial The initial lookups to proxy, if any
+     * @since 8.43
+     * @return A lookup that delegates to those passed or those last passed to
+     * the consumer
+     */
+    public static Lookup createThreaded(
+            Consumer<BiConsumer<Executor, Lookup[]>> setterConsumer,
+            Lookup... initial) {
+        ProxyLookup result = new ProxyLookup(initial);
+        setterConsumer.accept(result::setLookups);
+        return result;
+    }
+
     /**
      * Changes the delegates.
      *

@@ -25,9 +25,10 @@
     <apidef name="lookup">Lookup API</apidef>
 </apidefs>
 <changes>
-    <change id="ProxyLookupFactoryMethods">
+    <change id="ProxyLookupController">
         <api name="lookup"/>
-        <summary>Declare support for all source levels.</summary>
+        <summary>Add ProxyLookup.Controller to set lookups dynamically without 
+            subclassing</summary>
         <version major="8" minor="43"/>
         <date year="2020" month="7" day="4"/>
         <author login="tboudreau"/>
@@ -44,12 +45,8 @@
                 | grep -vi test | wc -l</code>) which could potentially be eliminated
                 (137 instances if test classes are included).
             </p><p>
-                This patch solves that problem, adding two static methods to
-                <code>ProxyLookup</code> which take a 
-                <code>Consumer&lt;Consumer&lt;Lookup[]&gt;&gt;</code>
-                or a <code>BiConsumer&lt;Consumer&lt;Executor, Lookup[]&gt;&gt;</code>
-                which is passed a handle to these methods without exposing them
-                to any code other than the caller.
+                This patch solves that problem, adding <code>ProxyLookup.Controller</code>
+                and a new constructor to <code>ProxyLookup</code> which takes one.
             </p>
         </description>
         <class name="ProxyLookup" package="org.openide.util.lookup"/>

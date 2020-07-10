@@ -45,13 +45,49 @@ public class ProxyLookupFactoryMethodsTest {
     private Consumer<Lookup[]> lookupConsumer;
     private BiConsumer<Executor, Lookup[]> lookupBiConsumer;
 
+    private Lookup createWithSingleConsumer(Lookup... lookups) {
+        ProxyLookup.Controller controller = new ProxyLookup.Controller(lookups);
+        lookupConsumer = controller::setLookups;
+        return new ProxyLookup(controller);
+    }
+
+    private Lookup createWithBiConsumer(Lookup... lookups) {
+        ProxyLookup.Controller controller = new ProxyLookup.Controller(lookups);
+        lookupBiConsumer = controller::setLookups;
+        return new ProxyLookup(controller);
+    }
+
+    @Test
+    public void testCannotUseControllerOnMultipleLookups() {
+        ProxyLookup.Controller ctrllr = new ProxyLookup.Controller();
+        ProxyLookup first = new ProxyLookup(ctrllr);
+        assertTrue(first.lookupAll(String.class).isEmpty());
+        try {
+            ProxyLookup second = new ProxyLookup(ctrllr);
+            fail("Exception should have been thrown using controller more than "
+                    + "once but was able to create " + second);
+        } catch (IllegalStateException ex) {
+            // ok
+        }
+    }
+
+    @Test
+    public void testStartWithEmptyController() {
+        ProxyLookup.Controller ctrllr = new ProxyLookup.Controller();
+        ProxyLookup lkp = new ProxyLookup(ctrllr);
+        assertTrue(lkp.lookupAll(String.class).isEmpty());
+        ctrllr.setLookups(Lookups.fixed("a"), Lookups.fixed("b"));
+        assertEquals(new HashSet<>(Arrays.asList("a", "b")),
+                new HashSet<>(lkp.lookupAll(String.class)));
+    }
+
     @Test
     public void testSimpleFactory() {
         Lookup a = Lookups.fixed("a");
         Lookup b = Lookups.fixed("b");
         Lookup c = Lookups.fixed("c");
 
-        Lookup target = ProxyLookup.create(this::setConsumer, a, b);
+        Lookup target = createWithSingleConsumer(a, b);
         assertNotNull(lookupConsumer);
         assertTrue(target.lookupAll(String.class).containsAll(asList("a", "b")));
         assertFalse(target.lookupAll(String.class).contains("c"));
@@ -70,7 +106,7 @@ public class ProxyLookupFactoryMethodsTest {
         Lookup b = Lookups.fixed("b");
         Lookup c = Lookups.fixed("c");
 
-        Lookup target = ProxyLookup.createThreaded(this::setBiConsumer, a, b);
+        Lookup target = createWithBiConsumer(a, b);
         Lookup.Result<String> result = target.lookupResult(String.class);
 
         LL lis = new LL();
@@ -95,18 +131,10 @@ public class ProxyLookupFactoryMethodsTest {
         assertTrue(target.lookupAll(String.class).isEmpty());
         assertTrue(result.allInstances().isEmpty());
 
-        lookupBiConsumer.accept(null, new Lookup[] { b, c});
+        lookupBiConsumer.accept(null, new Lookup[]{b, c});
         assertTrue(target.lookupAll(String.class).containsAll(asList("b", "c")));
-        assertEquals(new HashSet<>(result.allInstances()), new HashSet<>(Arrays.asList( "b", "c")));
+        assertEquals(new HashSet<>(result.allInstances()), new HashSet<>(Arrays.asList("b", "c")));
         lis.assertNotifiedSynchronously();
-    }
-
-    private void setConsumer(Consumer<Lookup[]> consumer) {
-        this.lookupConsumer = consumer;
-    }
-
-    private void setBiConsumer(BiConsumer<Executor, Lookup[]> consumer) {
-        this.lookupBiConsumer = consumer;
     }
 
     static final class TThreadFactory implements ThreadFactory {

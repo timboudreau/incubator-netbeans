@@ -50,7 +50,7 @@
             </p>
         </description>
         <class name="ProxyLookup" package="org.openide.util.lookup"/>
-        <issue number="NETBEANS-2232"/>
+        <issue number="NETBEANS-4699"/>
     </change>    
     <change id="AbstractProcessorSupportedSource">
         <api name="lookup"/>

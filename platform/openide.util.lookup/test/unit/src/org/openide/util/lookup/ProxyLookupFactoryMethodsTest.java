@@ -22,13 +22,10 @@ import java.util.Arrays;
 import static java.util.Arrays.asList;
 import java.util.HashSet;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BiConsumer;
-import java.util.function.Consumer;
 import org.junit.Test;
 import static org.junit.Assert.*;
 import org.openide.util.Lookup;
@@ -42,19 +39,23 @@ import org.openide.util.lookup.ProxyLookupFactoryMethodsTest.TThreadFactory.TThr
  */
 public class ProxyLookupFactoryMethodsTest {
 
-    private Consumer<Lookup[]> lookupConsumer;
-    private BiConsumer<Executor, Lookup[]> lookupBiConsumer;
+    private ProxyLookup.Controller controller1;
+    private ProxyLookup.Controller controller2;
 
     private Lookup createWithSingleConsumer(Lookup... lookups) {
-        ProxyLookup.Controller controller = new ProxyLookup.Controller(lookups);
-        lookupConsumer = controller::setLookups;
-        return new ProxyLookup(controller);
+        ProxyLookup.Controller controller = new ProxyLookup.Controller();
+        controller1 = controller;
+        ProxyLookup result = new ProxyLookup(controller);
+        result.setLookups(lookups);
+        return result;
     }
 
     private Lookup createWithBiConsumer(Lookup... lookups) {
-        ProxyLookup.Controller controller = new ProxyLookup.Controller(lookups);
-        lookupBiConsumer = controller::setLookups;
-        return new ProxyLookup(controller);
+        ProxyLookup.Controller controller = new ProxyLookup.Controller();
+        controller2 = controller;
+        ProxyLookup result = new ProxyLookup(controller);
+        result.setLookups(lookups);
+        return result;
     }
 
     @Test
@@ -88,14 +89,14 @@ public class ProxyLookupFactoryMethodsTest {
         Lookup c = Lookups.fixed("c");
 
         Lookup target = createWithSingleConsumer(a, b);
-        assertNotNull(lookupConsumer);
+        assertNotNull(controller1);
         assertTrue(target.lookupAll(String.class).containsAll(asList("a", "b")));
         assertFalse(target.lookupAll(String.class).contains("c"));
 
-        lookupConsumer.accept(new Lookup[]{a, b, c});
+        controller1.setLookups(new Lookup[]{a, b, c});
         assertTrue(target.lookupAll(String.class).containsAll(asList("a", "b", "c")));
 
-        lookupConsumer.accept(new Lookup[0]);
+        controller1.setLookups(new Lookup[0]);
         assertTrue(target.lookupAll(String.class).isEmpty());
     }
 
@@ -115,23 +116,23 @@ public class ProxyLookupFactoryMethodsTest {
         // of Collection.equals().
         assertEquals(new HashSet<>(result.allInstances()), new HashSet<>(Arrays.asList("a", "b")));
 
-        assertNotNull(lookupBiConsumer);
+        assertNotNull(controller2);
         assertTrue(target.lookupAll(String.class).containsAll(asList("a", "b")));
         assertFalse(target.lookupAll(String.class).contains("c"));
 
-        lookupBiConsumer.accept(svc, new Lookup[]{a, b, c});
+        controller2.setLookups(svc, new Lookup[]{a, b, c});
 
         lis.assertNotifiedInExecutor();
 
         assertTrue(target.lookupAll(String.class).containsAll(asList("a", "b", "c")));
         assertEquals(new HashSet<>(result.allInstances()), new HashSet<>(Arrays.asList("a", "b", "c")));
 
-        lookupBiConsumer.accept(svc, new Lookup[0]);
+        controller2.setLookups(svc, new Lookup[0]);
         lis.assertNotifiedInExecutor();
         assertTrue(target.lookupAll(String.class).isEmpty());
         assertTrue(result.allInstances().isEmpty());
 
-        lookupBiConsumer.accept(null, new Lookup[]{b, c});
+        controller2.setLookups(null, new Lookup[]{b, c});
         assertTrue(target.lookupAll(String.class).containsAll(asList("b", "c")));
         assertEquals(new HashSet<>(result.allInstances()), new HashSet<>(Arrays.asList("b", "c")));
         lis.assertNotifiedSynchronously();

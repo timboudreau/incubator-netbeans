@@ -36,7 +36,6 @@ import java.util.Map.Entry;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.Executor;
-import java.util.function.BiConsumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.openide.util.Lookup;
@@ -75,8 +74,8 @@ public class ProxyLookup extends Lookup {
      */
     @SuppressWarnings("LeakingThisInConstructor")
     public ProxyLookup(Controller controller) {
-        data = ImmutableInternalData.EMPTY.setLookupsNoFire(
-                controller.setProxyLookup(this), true);
+        this();
+        controller.setProxyLookup(this);
     }
 
     /**
@@ -119,24 +118,13 @@ public class ProxyLookup extends Lookup {
      */
     public static final class Controller {
 
-        private BiConsumer<? super Executor, ? super Lookup[]> consumer;
-
-        /**
-         * Create a controller with an initial set of lookups that will be
-         * proxied by a {@link ProxyLookup} this controller is passed to the
-         * constructor of.
-         * @param lookups An array of lookups
-         */
-        public Controller(Lookup... lookups) {
-            consumer = new InitialConsumer(lookups);
-        }
+        private ProxyLookup consumer;
 
         /**
          * Create a controller with an initially empty set of lookups to
          * proxy to.
          */
         public Controller() {
-            consumer = new InitialConsumer();
         }
 
         /**
@@ -150,8 +138,12 @@ public class ProxyLookup extends Lookup {
          * @param exe An executor to notify in
          * @param lookups An array of Lookups to be proxied
          */
-        public synchronized void setLookups(Executor exe, Lookup... lookups) {
-            consumer.accept(exe, lookups);
+        public void setLookups(Executor exe, Lookup... lookups) {
+            if (consumer == null) {
+                throw new IllegalStateException("Cannot use Controller until "
+                        + "a ProxyLookup has been created with it.");
+            }
+            consumer.setLookups(exe, lookups);
         }
 
         /**
@@ -164,39 +156,19 @@ public class ProxyLookup extends Lookup {
          * @param lookups An array of Lookups to be proxied
          */
         public void setLookups(Lookup... lookups) {
+            if (consumer == null) {
+                throw new IllegalStateException("Cannot use Controller until "
+                        + "a ProxyLookup has been created with it.");
+            }
             setLookups(null, lookups);
         }
 
-        synchronized Lookup[] setProxyLookup(ProxyLookup lkp) {
-            if (!(this.consumer instanceof InitialConsumer)) {
-                throw new IllegalStateException("Attempting to use "
-                        + "ProxyLookup.Controller for more than one "
-                        + "ProxyLookup is illegal");
+        void setProxyLookup(ProxyLookup lkp) {
+            if (consumer != null) {
+                throw new IllegalStateException("Controller cannot be used "
+                        + "with more than one ProxyLookup.");
             }
-            Lookup[] result = ((InitialConsumer) consumer).lookups();
-            this.consumer = lkp::setLookups;
-            return result;
-        }
-
-        private static class InitialConsumer implements BiConsumer<Executor, Lookup[]> {
-
-            private Lookup[] lookups;
-
-            InitialConsumer() {
-            }
-
-            InitialConsumer(Lookup[] lookups) {
-                this.lookups = lookups;
-            }
-
-            synchronized Lookup[] lookups() {
-                return lookups == null ? new Lookup[0] : lookups;
-            }
-
-            @Override
-            public synchronized void accept(Executor ignored, Lookup[] lookups) {
-                this.lookups = Arrays.copyOf(lookups, lookups.length);
-            }
+            consumer = lkp;
         }
     }
 

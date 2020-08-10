@@ -20,7 +20,6 @@
 package org.netbeans.modules.project.ui.actions;
 
 import java.awt.event.ActionEvent;
-import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -68,7 +67,7 @@ abstract class LookupSensitiveAction extends BasicAction implements Runnable, Lo
     public LookupSensitiveAction(Icon icon, Lookup lookup, Class[] watch ) {
         super( null, icon );
         if (lookup == null) {
-            lookup = LastActivatedWindowLookup.INSTANCE;
+            lookup = lastActivatedWindowLookup();
         }
         this.lookup = lookup;
         this.watch = watch;
@@ -243,38 +242,27 @@ abstract class LookupSensitiveAction extends BasicAction implements Runnable, Lo
         }
         
     }
-    
-    /**
-     * #120721: do not want to use Utilities.actionsGlobalContext since that does not survive focus change,
-     * and we would like to mimic the selection tracking behavior of Hacks.keepCurrentProjectNameUpdated.
-     */
-    static final class LastActivatedWindowLookup extends ProxyLookup implements PropertyChangeListener {
 
-        static final Lookup INSTANCE = new LastActivatedWindowLookup();
-
-        private final TopComponent.Registry reg = TopComponent.getRegistry();
-
-        LastActivatedWindowLookup() {
-            reg.addPropertyChangeListener(this);
-            updateLookups();
+    private static Lookup LAST_ACTIVATED_WINDOW_LOOKUP;
+    static Lookup lastActivatedWindowLookup() {
+        if (LAST_ACTIVATED_WINDOW_LOOKUP != null) {
+            return LAST_ACTIVATED_WINDOW_LOOKUP;
         }
-
-        private void updateLookups() {
-            Node[] nodes = reg.getActivatedNodes();
-            Lookup[] delegates = new Lookup[nodes.length];
-            for (int i = 0; i < nodes.length; i++) {
-                delegates[i] = nodes[i].getLookup();
+        ProxyLookup.Controller ctrllr = new ProxyLookup.Controller();
+        ProxyLookup lkp = new ProxyLookup(ctrllr);
+        TopComponent.Registry reg = TopComponent.getRegistry();
+        PropertyChangeListener listener = evt -> {
+            if (evt == null || TopComponent.Registry.PROP_ACTIVATED_NODES.equals(evt.getPropertyName())) {
+                Node[] nodes = reg.getActivatedNodes();
+                Lookup[] delegates = new Lookup[nodes.length];
+                for (int i = 0; i < nodes.length; i++) {
+                    delegates[i] = nodes[i].getLookup();
+                }
+                ctrllr.setLookups(delegates);
             }
-            setLookups(delegates);
-        }
-
-        @Override
-        public void propertyChange(PropertyChangeEvent ev) {
-            if (TopComponent.Registry.PROP_ACTIVATED_NODES.equals(ev.getPropertyName())) {
-                updateLookups();
-            }
-        }
-
+        };
+        listener.propertyChange(null);
+        reg.addPropertyChangeListener(listener);
+        return LAST_ACTIVATED_WINDOW_LOOKUP = lkp;
     }
-
 }

@@ -32,6 +32,7 @@ import java.awt.event.ActionListener;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -141,54 +142,92 @@ public class DependencyGraphTopComponent extends TopComponent implements LookupL
     )
     @Messages("TAB_Graph=Graph")
     public static MultiViewElement forPOM(final Lookup editor) {
-        class L extends ProxyLookup implements PropertyChangeListener {
-            Project p;
-            L() {
-                FileObject pom = editor.lookup(FileObject.class);
-                if (pom != null) {
-                    p = FileOwnerQuery.getOwner(pom);
-                    if (p != null) {
-                        NbMavenProject nbmp = p.getLookup().lookup(NbMavenProject.class);
-                        if (nbmp != null) {
-                            nbmp.addPropertyChangeListener(WeakListeners.propertyChange(this, nbmp));
-                            reset();
-                        } else {
-                            LOG.log(Level.WARNING, "not a Maven project: {0}", p);
-                        }
+        ProjectChangeListener listener= new ProjectChangeListener(editor);
+        return new DependencyGraphTopComponent(listener, listener.lookup());
+    }
+
+    private static class ProjectChangeListener implements PropertyChangeListener {
+
+        private final ProxyLookup.Controller lookupController = new ProxyLookup.Controller();
+        private final ProxyLookup lookup = new ProxyLookup(lookupController);
+        private Lookup editor;
+        private WeakReference<Project> lastProject = null;
+
+        public ProjectChangeListener(Lookup editor) {
+            this.editor = editor;
+            FileObject pom = editor.lookup(FileObject.class);
+            if (pom != null) {
+                Project p = FileOwnerQuery.getOwner(pom);
+                if (p != null) {
+                    NbMavenProject nbmp = p.getLookup().lookup(NbMavenProject.class);
+                    if (nbmp != null) {
+                        nbmp.addPropertyChangeListener(WeakListeners.propertyChange(this, nbmp));
+                        resetLookup(p);
                     } else {
-                        LOG.log(Level.WARNING, "no owner of {0}", pom);
+                        LOG.log(Level.WARNING, "not a Maven project: {0}", p);
                     }
                 } else {
-                    LOG.log(Level.WARNING, "no FileObject in {0}", editor);
+                    LOG.log(Level.WARNING, "no owner of {0}", pom);
                 }
+            } else {
+                LOG.log(Level.WARNING, "no FileObject in {0}", editor);
             }
-            @Override
-            public void propertyChange(PropertyChangeEvent evt) {
-                if (NbMavenProject.PROP_PROJECT.equals(evt.getPropertyName())) {
-                    reset();
-                }
+        }
+
+        private Project findProject() {
+            FileObject pom = editor.lookup(FileObject.class);
+            if (pom != null) {
+                return FileOwnerQuery.getOwner(pom);
             }
-            private void reset() {
-                ArtifactViewerFactory avf = Lookup.getDefault().lookup(ArtifactViewerFactory.class);
-                if (avf != null) {
-                    Lookup l = null;
-                    try {
-                        l = avf.createLookup(p);
-                    } catch (InvalidArtifactRTException e) {
-                        // issue #258898 
-                        LOG.log(Level.WARNING, "problems while creating lookup for {"  + p + "} : " + e.getMessage(), e);
-                    }
-                    if (l != null) {
-                        setLookups(l);
-                    } else {
-                        LOG.log(Level.WARNING, "no artifact lookup for {0}", p);
-                    }
-                } else {
-                    LOG.warning("no ArtifactViewerFactory found");
+            return null;
+        }
+
+        Lookup lookup() {
+            return lookup;
+        }
+
+        @Override
+        public void propertyChange(PropertyChangeEvent evt) {
+            if (NbMavenProject.PROP_PROJECT.equals(evt.getPropertyName())) {
+                Project p = findProject();
+                if (p != null) {
+                    resetLookup(p);
                 }
             }
         }
-        return new DependencyGraphTopComponent(new L());
+
+        private void resetLookup(Project p) {
+            // PROP_PROJECT is fired every time _any open project_ is built, and
+            // it is nonsensical to reset the graph every time - the original
+            // implementation did that
+            //
+            // For that matter, it is nonsensical for it to continue listening
+            // when closed, until IDE shutdown, as an exception being thrown in
+            // here showed me it does.  But that's a problem for a different day
+            // - this is a rarely used bit of UI.
+            WeakReference<Project> lp = lastProject;
+            if (lp != null && lp.get() == p) {
+                return;
+            }
+            lastProject = new WeakReference<>(p);
+            ArtifactViewerFactory avf = Lookup.getDefault().lookup(ArtifactViewerFactory.class);
+            if (avf != null) {
+                Lookup l = null;
+                try {
+                    l = avf.createLookup(p);
+                } catch (InvalidArtifactRTException e) {
+                    // issue #258898
+                    LOG.log(Level.WARNING, "problems while creating lookup for {" + p + "} : " + e.getMessage(), e);
+                }
+                if (l != null) {
+                    lookupController.setLookups(l);
+                } else {
+                    LOG.log(Level.WARNING, "no artifact lookup for {0}", p);
+                }
+            } else {
+                LOG.warning("no ArtifactViewerFactory found");
+            }
+        }
     }
 
 //    private Project project;
@@ -199,6 +238,7 @@ public class DependencyGraphTopComponent extends TopComponent implements LookupL
     private DependencyGraphScene<MavenDependencyNode> scene;
     private MultiViewElementCallback callback;
     final JScrollPane pane = new JScrollPane();
+    private final PropertyChangeListener listenerRef;
     
     private Timer timer = new Timer(500, new ActionListener() {
         @Override public void actionPerformed(ActionEvent arg0) {
@@ -213,10 +253,11 @@ public class DependencyGraphTopComponent extends TopComponent implements LookupL
         "LBL_Scope_Runtime=Runtime",
         "LBL_Scope_Test=Test"
     })
-    public DependencyGraphTopComponent(Lookup lookup) {
+    public DependencyGraphTopComponent(PropertyChangeListener listener, Lookup lookup) {
         if (LOG.isLoggable(Level.FINE)) {
             LOG.log(Level.FINE, hashCode() + " created: " + lookup, new Exception());
         }
+        this.listenerRef = listener; // need to hold a reference or listening will end
         projectIcons = getIconsForOpenProjects();
         associateLookup(lookup);
         initComponents();

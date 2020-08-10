@@ -31,25 +31,37 @@ import org.openide.util.lookup.ProxyLookup;
 
 class MultiViewTopComponentLookup extends Lookup {
 
-    private MyProxyLookup proxy;
-    private InitialProxyLookup initial;
-    
-    public MultiViewTopComponentLookup(ActionMap initialObject) {
+    private final ProxyLookup proxy;
+    private final ProxyLookup initial;
+    private final ProxyLookup.Controller proxyController;
+    private final ProxyLookup.Controller initialController;
+    private final ActionMap initialActionMap;
+    private volatile boolean isProxyLookupInitialized;
+    public MultiViewTopComponentLookup(ActionMap initialActionMap) {
         super();
+        this.initialActionMap = initialActionMap;
+        initialController = new ProxyLookup.Controller();
+        proxyController = new ProxyLookup.Controller();
         // need to delegate in order to get the correct Lookup.Templates that refresh..
-        initial = new InitialProxyLookup(initialObject);
-        proxy = new MyProxyLookup(initial);
+        initial = new ProxyLookup(initialController);
+        refreshInitialProxyLookup();
+        proxy = new ProxyLookup(proxyController);
+        proxyController.setLookups(initial);
+    }
+
+    private void refreshInitialProxyLookup() {
+        initialController.setLookups(Lookups.fixed(new LookupProxyActionMap(initialActionMap)));
     }
     
-    
     public void setElementLookup(Lookup look) {
-        proxy.setElementLookup(look);
-        initial.refreshLookup();
+        proxyController.setLookups(initial, look);
+        refreshInitialProxyLookup();
+        isProxyLookupInitialized = true;
     }
     
     @Override
-    public Lookup.Item lookupItem(Lookup.Template template) {
-        Lookup.Item retValue;
+    public <T> Lookup.Item<T> lookupItem(Lookup.Template<T> template) {
+        Lookup.Item<T> retValue;
         if (template.getType() == ActionMap.class || (template.getId() != null && template.getId().equals("javax.swing.ActionMap"))) {
             return initial.lookupItem(template);
         }
@@ -59,57 +71,54 @@ class MultiViewTopComponentLookup extends Lookup {
     }    
     
      
-    public Object lookup(Class clazz) {
+    public <T> T lookup(Class<T> clazz) {
         if (clazz == ActionMap.class) {
             return initial.lookup(clazz);
         }
-        Object retValue;
-        
-        retValue = proxy.lookup(clazz);
-        return retValue;
+        return proxy.lookup(clazz);
     }
     
-    public Lookup.Result lookup(Lookup.Template template) {
+    public <T> Lookup.Result<T> lookup(Lookup.Template<T> template) {
         
         if (template.getType() == ActionMap.class || (template.getId() != null && template.getId().equals("javax.swing.ActionMap"))) {
             return initial.lookup(template);
         }
-        Lookup.Result retValue;
+        Lookup.Result<T> retValue;
         retValue = proxy.lookup(template);
         retValue = new ExclusionResult(retValue);
         return retValue;
     }
 
     boolean isInitialized() {
-        return proxy.isInitialized();
+        return isProxyLookupInitialized;
     }
     
     /**
      * A lookup result excluding some instances.
      */
-    private static final class ExclusionResult extends Lookup.Result implements LookupListener {
+    private static final class ExclusionResult<T> extends Lookup.Result<T> implements LookupListener {
         
-        private final Lookup.Result delegate;
+        private final Lookup.Result<T> delegate;
         private final List<LookupListener> listeners = new ArrayList<>();
-        private Collection lastResults;
+        private Collection<? extends T> lastResults;
         
-        public ExclusionResult(Lookup.Result delegate) {
+        public ExclusionResult(Lookup.Result<T> delegate) {
             this.delegate = delegate;
         }
         
-        public Collection allInstances() {
+        public Collection<? extends T> allInstances() {
             // this shall remove duplicates??
             Set s = new HashSet(delegate.allInstances());
             return s;
         }
         
-        public Set allClasses() {
+        public Set<Class<? extends T>> allClasses() {
             return delegate.allClasses(); // close enough
         }
         
-        public Collection allItems() {
+        public Collection<Lookup.Item<T>> allItems() {
             // remove duplicates..
-            Set s = new HashSet(delegate.allItems());
+            Set<Item<T>> s = new HashSet<>(delegate.allItems());
             Iterator it = s.iterator();
             Set instances = new HashSet();
             while (it.hasNext()) {
@@ -147,7 +156,7 @@ class MultiViewTopComponentLookup extends Lookup {
         
         public void resultChanged(LookupEvent ev) {
             synchronized (listeners) {
-                Collection current = allInstances();
+                Collection<? extends T> current = allInstances();
                 boolean equal = lastResults != null && current != null && current.containsAll(lastResults) && lastResults.containsAll(current);
                 if (equal) {
                     // the merged list is the same, ignore...
@@ -164,39 +173,6 @@ class MultiViewTopComponentLookup extends Lookup {
             for (int i = 0; i < ls.length; i++) {
                 ls[i].resultChanged(ev2);
             }
-        }
-        
-    }
-    
-    private static class MyProxyLookup extends ProxyLookup {
-        private Lookup initialLookup;
-        public MyProxyLookup(Lookup initial) {
-            super(new Lookup[] {initial});
-            initialLookup = initial;
-        }
-
-        public void setElementLookup(Lookup look) {
-            final Lookup[] arr = getLookups();
-            if (arr.length == 2 && look == arr[1]) {
-                return;
-            }
-            setLookups(new Lookup[] {initialLookup, look});
-        }
-
-        private boolean isInitialized() {
-            return getLookups().length == 2;
-        }
-    }
-    
-    static class InitialProxyLookup extends ProxyLookup {
-        private ActionMap initObject;
-        public InitialProxyLookup(ActionMap obj) {
-            super(new Lookup[] {Lookups.fixed(new Object[] {new LookupProxyActionMap(obj)})});
-            initObject = obj;
-        }
-
-        public void refreshLookup() {
-            setLookups(new Lookup[] {Lookups.fixed(new Object[] {new LookupProxyActionMap(initObject)})});
         }
         
     }

@@ -67,7 +67,7 @@ public class GraphMD implements MultiViewDescription, Serializable {
     }
 
     @Override public MultiViewElement createElement() {
-        return new DependencyGraphTopComponent(lookup);
+        return new DependencyGraphTopComponent(null, lookup);
     }
 
     @ServiceProvider(service=ArtifactViewerPanelProvider.class, position=400)

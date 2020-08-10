@@ -100,10 +100,10 @@ public class Utils {
 
     public static void reassignLkp(FileObject from, FileObject to) {
         try {
-            Class<?> c = Class.forName("org.openide.filesystems.FileObjectLkp");
-            Method m = c.getDeclaredMethod("reassign", FileObject.class, FileObject.class);
+            Class<?> c = FileObject.class;
+            Method m = c.getDeclaredMethod("reassignLookup", FileObject.class);
             m.setAccessible(true);
-            m.invoke(null, from, to);
+            m.invoke(from, to);
         } catch (InvocationTargetException ex) {
             if (ex.getCause() instanceof RuntimeException) {
                 throw (RuntimeException) ex.getCause();

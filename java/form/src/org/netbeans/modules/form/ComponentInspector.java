@@ -57,7 +57,8 @@ public class ComponentInspector extends JPanel
     private FormDesigner formDesigner;
 
     private ExplorerManager explorerManager;
-    private ExplorerManagerLookup lookup;
+    private final ProxyLookup.Controller lookupController = new ProxyLookup.Controller();
+    private final ProxyLookup lookup = new ProxyLookup(lookupController);
 
     private PropertyChangeListener nodeSelectionListener;
 
@@ -92,8 +93,6 @@ public class ComponentInspector extends JPanel
     }
 
     private ComponentInspector() {
-        lookup = new ExplorerManagerLookup();
-
         setLayout(new java.awt.BorderLayout());
         createComponents();
         setupActionMap(getActionMap());
@@ -212,7 +211,7 @@ public class ComponentInspector extends JPanel
         formDesigner = designer;
 
         if (designer == null) {
-            lookup.setLookupFromExplorerManager(null, null);
+            setLookupFromExplorerManager(null, null);
             explorerManager = null;
             removeAll(); // swing memory leak workaround (old)
             createComponents();
@@ -221,7 +220,7 @@ public class ComponentInspector extends JPanel
             explorerManager = designer.getExplorerManager();
             remove(treeView);
             add(treeView, BorderLayout.CENTER);
-            lookup.setLookupFromExplorerManager(explorerManager, getActionMap());
+            setLookupFromExplorerManager(explorerManager, getActionMap());
             if (nodeSelectionListener == null) {
                 nodeSelectionListener = new NodeSelectionListener();
             }
@@ -393,14 +392,12 @@ public class ComponentInspector extends JPanel
         return treeView.requestFocusInWindow();
     }
 
+    void setLookupFromExplorerManager(ExplorerManager manager, ActionMap actionMap) {
+        lookupController.setLookups(manager != null ? ExplorerUtils.createLookup(manager, actionMap) : Lookup.EMPTY);
+    }
+
     // ---------------
     // innerclasses
-
-    private static class ExplorerManagerLookup extends ProxyLookup {
-        void setLookupFromExplorerManager(ExplorerManager manager, ActionMap actionMap) {
-            setLookups(manager != null ? ExplorerUtils.createLookup(manager, actionMap) : Lookup.EMPTY);
-        }
-    }
 
     // listener on nodes selection (ExplorerManager)
     private class NodeSelectionListener implements PropertyChangeListener,

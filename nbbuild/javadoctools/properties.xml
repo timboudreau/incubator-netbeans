@@ -234,3 +234,11 @@
 <property name="javadoc.docs.org-netbeans-modules-gradle-java" value="${javadoc.web.root}/org-netbeans-modules-gradle-java"/>
 <property name="javadoc.docs.org-netbeans-modules-textmate-lexer" value="${javadoc.web.root}/org-netbeans-modules-textmate-lexer"/>
 <property name="javadoc.docs.org-netbeans-modules-jumpto" value="${javadoc.web.root}/org-netbeans-modules-jumpto"/>
+<property name="javadoc.docs.bcpg" value="${javadoc.web.root}/bcpg"/>
+<property name="javadoc.docs.bcprov" value="${javadoc.web.root}/bcprov"/>
+<property name="javadoc.docs.com-google-gson" value="${javadoc.web.root}/com-google-gson"/>
+<property name="javadoc.docs.com-google-guava" value="${javadoc.web.root}/com-google-guava"/>
+<property name="javadoc.docs.com-googlecode-javaewah-JavaEWAH" value="${javadoc.web.root}/com-googlecode-javaewah-JavaEWAH"/>
+<property name="javadoc.docs.com-jcraft-jzlib" value="${javadoc.web.root}/com-jcraft-jzlib"/>
+<property name="javadoc.docs.com-jcraft-jsch" value="${javadoc.web.root}/com-jcraft-jsch"/>
+<property name="javadoc.docs.libs-c-kohlschutter-junixsocket" value="${javadoc.web.root}/libs-c-kohlschutter-junixsocket"/>

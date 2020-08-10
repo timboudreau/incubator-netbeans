@@ -67,7 +67,8 @@ public class FormDesignerTC extends TopComponent implements MultiViewElement {
     private FormDesigner formDesigner;
     private PropertyChangeListener designerListener;
 
-    private FormDesignerLookup lookup;
+    private final ProxyLookup.Controller lookupController = new ProxyLookup.Controller();
+    private final ProxyLookup lookup = new ProxyLookup(lookupController);
 
     private AssistantView assistantView;
     private PreferenceChangeListener settingsListener;
@@ -85,7 +86,6 @@ public class FormDesignerTC extends TopComponent implements MultiViewElement {
     
     FormDesignerTC(FormEditorSupport formEditorSupport) {
         this.formEditorSupport = formEditorSupport;
-        lookup = new FormDesignerLookup();
         createDesigner();
         associateLookup(lookup);
         setIcon(ImageUtilities.loadImage(iconURL));
@@ -106,7 +106,7 @@ public class FormDesignerTC extends TopComponent implements MultiViewElement {
             };
         }
         formDesigner.addPropertyChangeListener(designerListener);
-        lookup.setLookupFromDesigner(formDesigner);
+        setLookupFromDesigner(formDesigner);
     }
 
     @Override
@@ -381,9 +381,7 @@ public class FormDesignerTC extends TopComponent implements MultiViewElement {
         repaint();
     }
 
-    private static class FormDesignerLookup extends ProxyLookup {
-        void setLookupFromDesigner(FormDesigner designer) {
-            setLookups(designer.getLookup());
-        }
+    void setLookupFromDesigner(FormDesigner designer) {
+        lookupController.setLookups(designer.getLookup());
     }
 }

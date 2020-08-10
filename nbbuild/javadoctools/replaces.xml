@@ -234,3 +234,11 @@
 <replacefilter token="@org-netbeans-modules-gradle-java@" value="${javadoc.docs.org-netbeans-modules-gradle-java}"/>
 <replacefilter token="@org-netbeans-modules-textmate-lexer@" value="${javadoc.docs.org-netbeans-modules-textmate-lexer}"/>
 <replacefilter token="@org-netbeans-modules-jumpto@" value="${javadoc.docs.org-netbeans-modules-jumpto}"/>
+<replacefilter token="@bcpg@" value="${javadoc.docs.bcpg}"/>
+<replacefilter token="@bcprov@" value="${javadoc.docs.bcprov}"/>
+<replacefilter token="@com-google-gson@" value="${javadoc.docs.com-google-gson}"/>
+<replacefilter token="@com-google-guava@" value="${javadoc.docs.com-google-guava}"/>
+<replacefilter token="@com-googlecode-javaewah-JavaEWAH@" value="${javadoc.docs.com-googlecode-javaewah-JavaEWAH}"/>
+<replacefilter token="@com-jcraft-jzlib@" value="${javadoc.docs.com-jcraft-jzlib}"/>
+<replacefilter token="@com-jcraft-jsch@" value="${javadoc.docs.com-jcraft-jsch}"/>
+<replacefilter token="@libs-c-kohlschutter-junixsocket@" value="${javadoc.docs.libs-c-kohlschutter-junixsocket}"/>

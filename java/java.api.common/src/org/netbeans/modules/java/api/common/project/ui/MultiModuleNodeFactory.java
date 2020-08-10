@@ -61,7 +61,6 @@ import org.netbeans.modules.java.api.common.classpath.ClassPathSupport;
 import org.netbeans.modules.java.api.common.impl.MultiModule;
 import org.netbeans.modules.java.api.common.project.ProjectProperties;
 import org.netbeans.modules.java.api.common.queries.MultiModuleGroupQuery;
-import org.netbeans.spi.java.project.support.ui.PackageView;
 import org.netbeans.spi.project.support.ant.PropertyEvaluator;
 import org.netbeans.spi.project.support.ant.ReferenceHelper;
 import org.netbeans.spi.project.ui.PathFinder;
@@ -458,10 +457,14 @@ public final class MultiModuleNodeFactory implements NodeFactory {
         ModuleNode(@NonNull final ModuleKey key) {
             this(
                     key,
-                    new DynLkp());
+                    new ProxyLookup.Controller());
         }
 
-        private ModuleNode(@NonNull final ModuleKey key, @NonNull final DynLkp lookup) {
+        ModuleNode(@NonNull final ModuleKey key, ProxyLookup.Controller controller) {
+            this(key, new ProxyLookup(controller), controller);
+        }
+
+        private ModuleNode(@NonNull final ModuleKey key, @NonNull final ProxyLookup lookup, ProxyLookup.Controller lookupController) {
             super(new ModuleChildren (key), lookup);
             this.prj = key.getProject();
             this.modules = key.getSourceModules();
@@ -474,7 +477,7 @@ public final class MultiModuleNodeFactory implements NodeFactory {
             }
             setIconBaseWithExtension(ICON);
             setName(moduleName);
-            lookup.update(new ContentLkp(this, key.getProject(), new ModulePathFinder()));
+            lookupController.setLookups(new ContentLkp(this, key.getProject(), new ModulePathFinder()));
             updateFileStatusListeners();
         }
 
@@ -780,12 +783,6 @@ public final class MultiModuleNodeFactory implements NodeFactory {
             return fs == null ?
                     null :
                     Pair.of(fs, toAnnotate);
-        }
-
-        private static final class DynLkp extends ProxyLookup {
-            void update(Lookup... lkps) {
-                setLookups(lkps);
-            }
         }
 
         private static final class ContentLkp extends ProxyLookup {

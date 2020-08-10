@@ -56,7 +56,8 @@ public class DataShadow extends MultiDataObject implements DataObject.Container 
     private OrigL origL = null;
     /** List of nodes created for the DataShadow. */
     private LinkedList<ShadowNode> nodes = new LinkedList<ShadowNode> ();
-    private DSLookup lookup;
+    private ProxyLookup lookup;
+    private ProxyLookup.Controller lookupController;
 
     /** Extension name. */
     static final String SHADOW_EXTENSION = "shadow"; // NOI18N
@@ -591,13 +592,22 @@ public class DataShadow extends MultiDataObject implements DataObject.Container 
         if (getClass() == DataShadow.class) {
             synchronized (DataShadow.class) {
                 if (lookup == null) {
-                    lookup = new DSLookup(this, original);
+                    assert lookupController == null;
+                    lookupController = new ProxyLookup.Controller();
+                    lookup = new ProxyLookup(lookupController);
+                    refreshLookup();
                 }
                 return lookup;
             }
         } else {
             return super.getLookup();
         }
+    }
+
+    private void refreshLookup() {
+        assert lookupController != null;
+        lookupController.setLookups(Lookups.singleton(this),
+                original.getLookup());
     }
 
     /* Try to refresh link to original file */
@@ -667,7 +677,7 @@ public class DataShadow extends MultiDataObject implements DataObject.Container 
         
         original = o;
         if (lookup != null) {
-            lookup.refresh(this, original);
+            refreshLookup();
         }
 
         // update nodes

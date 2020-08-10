@@ -62,8 +62,9 @@ public class HtmlBrowserComponent extends CloneableTopComponent implements Prope
     private HtmlBrowser browserComponent;
     private HtmlBrowser.Factory browserFactory;
 
-    private final MyLookup proxyLookup = new MyLookup();
-    
+    private final ProxyLookup.Controller lookupController
+            = new ProxyLookup.Controller();
+    private final ProxyLookup proxyLookup = new ProxyLookup(lookupController);
 
     // initialization ....................................................................................
 
@@ -276,7 +277,7 @@ public class HtmlBrowserComponent extends CloneableTopComponent implements Prope
     private void initBrowser() {
         add( browserComponent, BorderLayout.CENTER );
         // associate with this TopComponent lookup provided by browser (HtmlBrowser.Impl.getLookup)
-        proxyLookup.setLookup(getBrowserLookup());
+        lookupController.setLookups(getBrowserLookup());
 
         browserComponent.getBrowserImpl().addPropertyChangeListener (this);
 
@@ -531,14 +532,4 @@ public static final class BrowserReplacer implements java.io.Externalizable {
     }
 
 } // end of BrowserReplacer inner class
-
-    private static class MyLookup extends ProxyLookup {
-        public MyLookup() {
-            super( Lookup.EMPTY );
-        }
-
-        public void setLookup( Lookup lkp ) {
-            setLookups( new Lookup[] { lkp } );
-        }
-    }
 }

@@ -68,6 +68,7 @@ public abstract class Lookup {
 
     /** default instance */
     private static Lookup defaultLookup;
+    private static ProxyLookup.Controller defaultLookupController;
     
     /**
      * Default instance's provider
@@ -168,52 +169,50 @@ public abstract class Lookup {
             return defaultLookup;
         }
 
-        DefLookup def = new DefLookup();
-        def.init(l, misl, false);
+        ProxyLookup.Controller ctrllr = new ProxyLookup.Controller();
+        ProxyLookup def = new ProxyLookup(ctrllr);
+        initDefaultLookup(l, misl, false, ctrllr);
         defaultLookup = def;
-        def.init(l, misl, true);
+        defaultLookupController = ctrllr;
+        initDefaultLookup(l, misl, true, ctrllr);
         LOG.log(Level.FINE, "Default lookup initialized {0}", defaultLookup);
         return defaultLookup;
     }
-    
-    private static final class DefLookup extends ProxyLookup {
-        public DefLookup() {
-            super(new Lookup[0]);
-        }
-        
-        public void init(ClassLoader loader, Lookup metaInfLookup, boolean addPath) {
-            // Had no such line, use simple impl.
-            // It does however need to have ClassLoader available or many things will break.
-            // Use the thread context classloader in effect now.
-            Lookup clLookup = Lookups.singleton(loader);
-            List<Lookup> arr = new ArrayList<Lookup>();
-            arr.add(metaInfLookup);
-            arr.add(clLookup);
-            String paths = System.getProperty("org.openide.util.Lookup.paths"); // NOI18N
-            if (addPath && paths != null) {
-                LOG.log(Level.FINE, "Adding search paths {0}", paths);
-                for (String p : paths.split(":")) { // NOI18N
-                    arr.add(Lookups.forPath(p));
-                }
+
+    private static void initDefaultLookup(ClassLoader loader, Lookup metaInfLookup, boolean addPath, ProxyLookup.Controller ctrllr) {
+        // Had no such line, use simple impl.
+        // It does however need to have ClassLoader available or many things will break.
+        // Use the thread context classloader in effect now.
+        Lookup clLookup = Lookups.singleton(loader);
+        List<Lookup> arr = new ArrayList<Lookup>();
+        arr.add(metaInfLookup);
+        arr.add(clLookup);
+        String paths = System.getProperty("org.openide.util.Lookup.paths"); // NOI18N
+        if (addPath && paths != null) {
+            LOG.log(Level.FINE, "Adding search paths {0}", paths);
+            for (String p : paths.split(":")) { // NOI18N
+                arr.add(Lookups.forPath(p));
             }
-            LOG.log(Level.FINER, "Setting DefLookup delegates {0}", arr);
-            setLookups(arr.toArray(new Lookup[0]));
         }
+        LOG.log(Level.FINER, "Setting DefLookup delegates {0}", arr);
+        ctrllr.setLookups(arr.toArray(new Lookup[0]));
     }
-    
+
     /** Called from MockServices to reset default lookup in case services change
      */
     private static synchronized void resetDefaultLookup() {
-        if (defaultLookup == null || defaultLookup instanceof DefLookup) {
-            DefLookup def = (DefLookup)defaultLookup;
+        if (defaultLookup == null || (defaultLookup instanceof ProxyLookup && defaultLookupController != null)) {
+            ProxyLookup def = (ProxyLookup)defaultLookup;
             ClassLoader l = Thread.currentThread().getContextClassLoader();
             Lookup misl = Lookups.metaInfServices(l);
             if (def == null) {
-                def = new DefLookup();
-                def.init(l, misl, false);
+                ProxyLookup.Controller ctrllr = new ProxyLookup.Controller();
+                def = new ProxyLookup(ctrllr);
+                initDefaultLookup(l, misl, false, ctrllr);
                 defaultLookup = def;
+                defaultLookupController = ctrllr;
             }
-            def.init(l, misl, true);
+            initDefaultLookup(l, misl, true, defaultLookupController);
         }
     }
 

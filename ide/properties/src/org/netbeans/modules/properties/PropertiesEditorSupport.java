@@ -59,8 +59,6 @@ import java.nio.charset.Charset;
 import java.util.Collections;
 import java.util.Date;
 import java.util.Enumeration;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.logging.Level;
@@ -74,7 +72,6 @@ import javax.swing.undo.CannotRedoException;
 import javax.swing.undo.CannotUndoException;
 import javax.swing.undo.UndoableEdit;
 import org.netbeans.api.queries.FileEncodingQuery;
-import org.netbeans.modules.properties.PropertiesEncoding.PropCharset;
 import org.netbeans.modules.properties.PropertiesEncoding.PropCharsetEncoder;
 import org.openide.ErrorManager;
 import org.openide.awt.UndoRedo;
@@ -114,7 +111,6 @@ import org.openide.util.lookup.ProxyLookup;
 import org.openide.windows.CloneableTopComponent;
 import org.openide.windows.TopComponent;
 import static java.util.logging.Level.FINER;
-import javax.swing.*;
 import org.openide.filesystems.StatusDecorator;
 
 /** 
@@ -1251,8 +1247,9 @@ implements EditCookie, EditorCookie.Observable, PrintCookie, CloseCookie, Serial
         static final long serialVersionUID =-2702087884943509637L;
         private MultiViewElementCallback callback;
         private transient JToolBar bar;
-        
-        private transient PropertiesEditorLookup peLookup;
+
+        private transient ProxyLookup.Controller peLookupController;
+        private transient ProxyLookup peLookup;
         private transient Lookup originalLookup;
         
         /** Constructor for deserialization */
@@ -1326,9 +1323,10 @@ implements EditCookie, EditorCookie.Observable, PrintCookie, CloseCookie, Serial
             if (currentLookup != originalLookup || null == peLookup) {
                 originalLookup = currentLookup;
                 if(peLookup == null) {
-                    peLookup = new PropertiesEditorLookup(Lookups.singleton(PropertiesEditor.this));
+                    peLookupController = new ProxyLookup.Controller();
+                    peLookup = new ProxyLookup(peLookupController);
                 }
-                peLookup.updateLookups(originalLookup);
+                peLookupController.setLookups(Lookups.singleton(PropertiesEditor.this), originalLookup);
             }
             return peLookup;
         }

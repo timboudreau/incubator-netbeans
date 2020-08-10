@@ -1410,7 +1410,7 @@ final class MultiFileObject extends AbstractFolder implements FileObject.Priorit
                 updateFoldersLock(getParent());
             }
             FileObject ret = leader.move(l, target, name, ext);
-            FileObjectLkp.reassign(this, ret);
+            reassignLookup(ret);
             return ret;
         } finally {
             fs.finishAtomicAction();

@@ -67,6 +67,7 @@ import org.netbeans.api.annotations.common.NullAllowed;
 import org.netbeans.api.project.Project;
 import org.netbeans.api.project.ProjectManager;
 import org.netbeans.modules.project.ui.OpenProjectList;
+import static org.netbeans.modules.project.ui.actions.LookupSensitiveAction.lastActivatedWindowLookup;
 import org.netbeans.spi.project.ProjectConfiguration;
 import org.netbeans.spi.project.ProjectConfigurationProvider;
 import org.openide.awt.ActionID;
@@ -232,7 +233,7 @@ public class ActiveConfigAction extends CallableSystemAction implements LookupLi
 
         OpenProjectList.getDefault().addPropertyChangeListener(WeakListeners.propertyChange(this, OpenProjectList.getDefault()));
 
-        lookup = LookupSensitiveAction.LastActivatedWindowLookup.INSTANCE;
+        lookup = lastActivatedWindowLookup();
         Lookup.Result<Project> resultPrj = lookup.lookupResult(Project.class);
         Lookup.Result<DataObject> resultDO = lookup.lookupResult(DataObject.class);
         resultPrj.addLookupListener(WeakListeners.create(LookupListener.class, this, resultPrj));

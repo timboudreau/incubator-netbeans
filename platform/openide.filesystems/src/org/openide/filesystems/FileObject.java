@@ -30,7 +30,6 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.Charset;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -43,6 +42,9 @@ import org.openide.util.Enumerations;
 import org.openide.util.NbBundle;
 import org.openide.util.Lookup;
 import org.openide.util.Lookup.Result;
+import org.openide.util.lookup.Lookups;
+import org.openide.util.lookup.ProxyLookup;
+import org.openide.util.lookup.implspi.NamedServicesProvider;
 
 /** This is the base for all implementations of file objects on a filesystem.
 * Provides basic information about the object (its name, parent,
@@ -76,9 +78,11 @@ public abstract class FileObject extends Object implements Serializable, Lookup.
 
     /** generated Serialized Version UID */
     static final long serialVersionUID = 85305031923497718L;
+    private static final Object LOOKUP_LOCK = new Object();
     
     /** implementation of lookup associated with this file object */
-    private FileObjectLkp lkp;
+    private ProxyLookup lkp;
+    private ProxyLookup.Controller lkpController;
 
     /** Get the name without extension of this file or folder.
     * Period at first position is not considered as extension-separator
@@ -161,7 +165,7 @@ public abstract class FileObject extends Object implements Serializable, Lookup.
             // have to do copy
             FileObject dest = copy(target, name, ext);
             delete(lock);
-            FileObjectLkp.reassign(this, dest);
+            reassignLookup(dest);
             return dest;
         }
     }
@@ -423,22 +427,38 @@ public abstract class FileObject extends Object implements Serializable, Lookup.
      */
     @Override
     public Lookup getLookup() {
-        return FileObjectLkp.create(this, true);
+        synchronized (LOOKUP_LOCK) {
+            if (lkp != null) {
+                return lkp;
+            }
+            ProxyLookup.Controller lkpController = new ProxyLookup.Controller();
+            ProxyLookup lkp = new ProxyLookup(lkpController);
+            assignLookup(lkp, lkpController);
+            return lkp;
+        }
     }
-    
-    final FileObjectLkp lookup() {
-        assert Thread.holdsLock(FileObjectLkp.class);
-        return lkp;
-    }
-    
-    final void assignLookup(FileObjectLkp lkp) {
-        assert Thread.holdsLock(FileObjectLkp.class);
+
+    private void assignLookup(ProxyLookup lkp, ProxyLookup.Controller ctrllr) {
+        assert Thread.holdsLock(LOOKUP_LOCK);
         if (this.lkp == lkp) {
             return;
         }
         assert this.lkp == null : "Should be null, but was " + this.lkp;
         this.lkp = lkp;
+        this.lkpController = ctrllr;
+        Lookup l = NamedServicesProvider.createLookupFor(this);
+        ctrllr.setLookups(l == null ? Lookups.singleton(this) : l);
     }
+
+    final void reassignLookup(FileObject to) {
+        synchronized (LOOKUP_LOCK) {
+            if (lkp != null) {
+                assert lkpController != null;
+                to.assignLookup(lkp, lkpController);
+            }
+        }
+    }
+
 
     /** Get the file attribute with the specified name.
     * @param attrName name of the attribute

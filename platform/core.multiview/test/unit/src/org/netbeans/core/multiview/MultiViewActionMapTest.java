@@ -48,6 +48,7 @@ import org.openide.util.LookupEvent;
 import org.openide.util.LookupListener;
 import org.openide.util.Utilities;
 import org.openide.util.lookup.Lookups;
+import org.openide.util.lookup.ProxyLookup;
 
 
 import org.openide.windows.TopComponent;
@@ -175,14 +176,17 @@ public class MultiViewActionMapTest extends NbTestCase {
     }
     
     public void testSimplifiedActionMapChanges81117() {
-        MultiViewTopComponentLookup.InitialProxyLookup lookup = new MultiViewTopComponentLookup.InitialProxyLookup(new ActionMap());
+        ActionMap testMap = new ActionMap();
+        ProxyLookup.Controller ctrllr = new ProxyLookup.Controller();
+        ProxyLookup lookup = new ProxyLookup(ctrllr);
+        ctrllr.setLookups(Lookups.fixed(new MultiViewTopComponentLookup.LookupProxyActionMap(testMap)));
         Lookup.Result res = lookup.lookup(new Lookup.Template(ActionMap.class));
         LookListener list = new LookListener();
         list.resetCount();
         res.addLookupListener(list);
         assertEquals(1, res.allInstances().size());
         assertEquals(0, list.getCount());
-        lookup.refreshLookup();
+        ctrllr.setLookups(Lookups.fixed(new MultiViewTopComponentLookup.LookupProxyActionMap(testMap)));
         assertEquals(1, list.getCount());
         assertEquals(1, res.allInstances().size());
         

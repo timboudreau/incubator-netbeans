@@ -564,6 +564,7 @@ public class ProjectsRootNode extends AbstractNode {
         private boolean iconChange;
         private volatile Boolean mainCache;
         private final ProjectChildren ch;
+        private final ProxyLookup.Controller lookupController;
         private final boolean logicalView;
         private final ProjectChildren.Pair pair;
         private final Set<FileObject> projectDirsListenedTo = new WeakSet<FileObject>();
@@ -624,7 +625,19 @@ public class ProjectsRootNode extends AbstractNode {
         }
 
         public BadgingNode(ProjectChildren ch, ProjectChildren.Pair p, Node n, boolean logicalView) {
-            super(n, null, badgingLookup(n));
+            this(ch, p, n, logicalView, new ProxyLookup.Controller());
+        }
+
+        public BadgingNode(ProjectChildren ch, ProjectChildren.Pair p, Node n, boolean logicalView,
+                ProxyLookup.Controller lookupController) {
+            this(ch, p, n, logicalView, lookupController, new ProxyLookup(lookupController));
+        }
+
+        public BadgingNode(ProjectChildren ch, ProjectChildren.Pair p, Node n, boolean logicalView,
+                ProxyLookup.Controller lookupController, ProxyLookup lookup) {
+            super(n, null, lookup);
+            this.lookupController = lookupController;
+            lookupController.setLookups(n.getLookup());
             this.ch = ch;
             this.pair = p;
             this.logicalView = logicalView;
@@ -635,10 +648,6 @@ public class ProjectsRootNode extends AbstractNode {
             AnnotationListener annotationListener = new AnnotationListener(this);
             annotationListener.init();
             result.addLookupListener(annotationListener);
-        }
-        
-        private static Lookup badgingLookup(Node n) {
-            return new BadgingLookup(n.getLookup());
         }
         
         protected final void setProjectFiles() {
@@ -705,8 +714,7 @@ public class ProjectsRootNode extends AbstractNode {
                 OpenProjectList.log(Level.FINER, "name after change original: {0}", getName());
                 OpenProjectList.log(Level.FINER, "children after change original: {0}", getChildren());
                 OpenProjectList.log(Level.FINER, "delegate children after change original: {0}", getOriginal().getChildren());
-                BadgingLookup bl = (BadgingLookup) getLookup();
-                bl.setMyLookups(n.getLookup());
+                lookupController.setLookups(n.getLookup());
                 OpenProjectList.log(Level.FINER, "done {0}", toStringForLog());
                 setProjectFilesAsynch();
             } else {
@@ -1007,17 +1015,6 @@ public class ProjectsRootNode extends AbstractNode {
             });
         }
     } // end of BadgingNode
-    private static final class BadgingLookup extends ProxyLookup {
-        public BadgingLookup(Lookup... lkps) {
-            super(lkps);
-        }
-        public void setMyLookups(Lookup... lkps) {
-            setLookups(lkps);
-        }
-        public boolean isSearchInfo() {
-            return getLookups().length > 1;
-        }
-    } // end of BadgingLookup
 
     /**
      * The {@link FileOwnerQueryImplementation} returning the first non artificial project owner

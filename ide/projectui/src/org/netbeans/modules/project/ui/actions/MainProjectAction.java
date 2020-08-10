@@ -147,7 +147,7 @@ public class MainProjectAction extends LookupSensitiveAction implements Property
         }
         Lookup theContext = context;
         if (theContext == null) {
-            theContext = LastActivatedWindowLookup.INSTANCE;
+            theContext = lastActivatedWindowLookup();
         }
         if (theContext != null) {
             Project[] projects = ActionsUtil.getProjectsFromLookup(theContext, command);

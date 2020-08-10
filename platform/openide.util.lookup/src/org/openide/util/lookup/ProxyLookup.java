@@ -112,7 +112,8 @@ public class ProxyLookup extends Lookup {
 
     /**
      * A controller which allows the set of lookups being proxied to be
-     * set dynamically.
+     * set dynamically without exposing the setter to code that should
+     * simply be a client of this ProxyLookup.
      *
      * @since 8.43
      */
@@ -129,14 +130,13 @@ public class ProxyLookup extends Lookup {
 
         /**
          * Set the lookups on the {@link ProxyLookup} this controller controls;
-         * if called before that ProxyLookup has been created, the lookup
-         * contents will be set during that ProxyLookup's constructor as if you
-         * had passed them to the constructor directly, but the executor
-         * parameter will be ignored (nothing will be listening to it while it's
-         * in its constructor anyway).
+         * if called before that ProxyLookup has been created, an
+         * <code>IllegalStateException</code> will the thrown.
          *
          * @param exe An executor to notify in
          * @param lookups An array of Lookups to be proxied
+         * @throws IllegalStateException if called before this instance
+         * has been passed to the constructor of (exactly one) {@link ProxyLookup}
          */
         public void setLookups(Executor exe, Lookup... lookups) {
             if (consumer == null) {
@@ -148,12 +148,13 @@ public class ProxyLookup extends Lookup {
 
         /**
          * Set the lookups on the {@link ProxyLookup} this controller controls;
-         * if called before that ProxyLookup has been created, the lookup
-         * contents will be set during that ProxyLookup's constructor as if you
-         * had passed them to the constructor directly.
+         * if called before that ProxyLookup has been created from this
+         * controller, an IllegalStateException will be thrown.
          *
          * @param exe An executor to notify in
          * @param lookups An array of Lookups to be proxied
+         * @throws IllegalStateException if called before this instance
+         * has been passed to the constructor of (exactly one) {@link ProxyLookup}
          */
         public void setLookups(Lookup... lookups) {
             if (consumer == null) {

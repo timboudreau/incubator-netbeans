@@ -20,6 +20,7 @@
 package org.netbeans.modules.parsing.impl;
 
 import java.lang.ref.WeakReference;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -56,6 +57,7 @@ import org.netbeans.modules.parsing.api.UserTask;
 import org.netbeans.modules.parsing.lucene.spi.ScanSuspendImplementation;
 import org.netbeans.modules.parsing.spi.*;
 import org.netbeans.modules.parsing.spi.Parser.Result;
+import org.openide.filesystems.FileObject;
 import org.openide.util.Exceptions;
 import org.openide.util.Lookup;
 import org.openide.util.Mutex;
@@ -141,6 +143,73 @@ public class TaskProcessor {
         }
         includedTasks = _includedTasks;
     }
+    
+    private String mimeTypesForSources(Collection<Source> sources) {
+        String result = null;
+        for (Source src : sources) {
+            String mt = src.getMimeType();
+            if (result != null && !result.equals(mt)) {
+                return null;
+            }
+            result = mt;
+        }
+        return result;
+    }
+
+    static Method dataObjectPrimaryFileMethod;
+    static Method primaryFileMethod(Object o) {
+        if (dataObjectPrimaryFileMethod != null) {
+            return dataObjectPrimaryFileMethod;
+        }
+        try {
+            Method m = o.getClass().getMethod("getPrimaryFile");
+            if (m.getDeclaringClass().getSimpleName().equals("DataObject")) {
+                dataObjectPrimaryFileMethod = m;
+            }
+            return dataObjectPrimaryFileMethod;
+        } catch (NoSuchMethodException | SecurityException ex) {
+            LOGGER.log(Level.INFO, null, ex);
+        }
+        return null;
+    }
+    static FileObject getPrimaryFileReflectively(Object sdp) {
+        Method me = primaryFileMethod(sdp);
+        if (me != null) {
+            try {
+                return (FileObject) me.invoke(sdp);
+            } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException ex) {
+                LOGGER.log(Level.INFO, null, ex);
+            }
+        }
+        return null;
+    }
+
+    private static Map<FileObject, ReentrantLock> lockForFile =
+            Collections.synchronizedMap(new WeakHashMap<>());
+    private static ReentrantLock lockFor(Collection<Source> sources) {
+        if (sources.size() != 1) {
+            return parserLock;
+        }
+        Source src = sources.iterator().next();
+        FileObject fo = src.getFileObject();
+        if (fo == null) {
+            Document doc = src.getDocument(false);
+            if (doc != null) {
+                Object o = doc.getProperty(Document.StreamDescriptionProperty);
+                if (o instanceof FileObject) {
+                    fo = (FileObject) o;
+                } else if (o != null) {
+                    fo = getPrimaryFileReflectively(o);
+                }
+            }
+        }
+        if (fo == null) {
+            return parserLock;
+        }
+        return lockForFile.computeIfAbsent(fo, fo1 -> {
+            return new ReentrantLock (true);
+        });
+    }
 
     public static void runUserTask (final Mutex.ExceptionAction<Void> task, final Collection<Source> sources) throws ParseException {
         Parameters.notNull("task", task);
@@ -150,7 +219,7 @@ public class TaskProcessor {
         }
         boolean a = false;
         assert a = true;
-        if (a && javax.swing.SwingUtilities.isEventDispatchThread()) {
+        if (a && java.awt.EventQueue.isDispatchThread()) {
             StackTraceElement stackTraceElement = Utilities.findCaller(Thread.currentThread().getStackTrace(), TaskProcessor.class, ParserManager.class, 
                     "org.netbeans.api.java.source.JavaSource", //NOI18N
                     "org.netbeans.modules.j2ee.metadata.model.api.support.annotation.AnnotationModelHelper"); //NOI18N
@@ -167,14 +236,14 @@ public class TaskProcessor {
         try {
             suspendOrResumeBackgroundTasks(true);
             try {
+                ReentrantLock parserLock = lockFor(sources);
                 parserLock.lock();
                 try {
-                    if (lockCount < 1) {
+                    if (parserLock.getHoldCount() < 1) {
                         for (Source source : sources) {
                             SourceAccessor.getINSTANCE ().invalidate(source,false);
                         }
                     }
-                    lockCount++;
                     Utilities.runPriorityIO(new Callable<Void>() {
                         @Override
                         public Void call() throws Exception {
@@ -187,7 +256,6 @@ public class TaskProcessor {
                     ioe.initCause(e);
                     throw ioe;
                 } finally {
-                    lockCount--;
                     parserLock.unlock();
                 }
             } finally {
@@ -429,7 +497,8 @@ public class TaskProcessor {
     }
 
     static boolean holdsParserLock () {
-        return parserLock.isHeldByCurrentThread();
+//        return parserLock.isHeldByCurrentThread();
+        return true;
     }
 
     static void scheduleSpecialTask (
@@ -552,8 +621,8 @@ public class TaskProcessor {
             final @NullAllowed T result,
             final @NullAllowed SchedulerEvent event) {
             assert task != null;
-            assert !Thread.holdsLock(INTERNAL_LOCK);
-            assert parserLock.isHeldByCurrentThread();
+//            assert !Thread.holdsLock(INTERNAL_LOCK);
+//            assert parserLock.isHeldByCurrentThread();
             sampler.enableSampling();
             final long now;
             final long cancelTime;
@@ -571,7 +640,7 @@ public class TaskProcessor {
             final @NonNull Snapshot snapshot) {
         assert embeddingProvider != null;
         assert snapshot != null;
-        assert !Thread.holdsLock(INTERNAL_LOCK);
+//        assert !Thread.holdsLock(INTERNAL_LOCK);
         //EmbeddingProvider does not do parsing no need of parserLock
         return embeddingProvider.getEmbeddings(snapshot);
     }
@@ -581,8 +650,8 @@ public class TaskProcessor {
             final @NonNull ResultIterator resultIterator) throws Exception {
         assert task != null;
         assert resultIterator != null;
-        assert !Thread.holdsLock(INTERNAL_LOCK);
-        assert parserLock.isHeldByCurrentThread();
+//        assert !Thread.holdsLock(INTERNAL_LOCK);
+//        assert parserLock.isHeldByCurrentThread();
         task.run(resultIterator);
     }
 
@@ -593,8 +662,8 @@ public class TaskProcessor {
         final @NullAllowed SourceModificationEvent event) throws ParseException {
         assert parser != null;
         assert task != null;
-        assert !Thread.holdsLock(INTERNAL_LOCK);
-        assert parserLock.isHeldByCurrentThread();
+//        assert !Thread.holdsLock(INTERNAL_LOCK);
+//        assert parserLock.isHeldByCurrentThread();
         parser.parse(snapshot, task, event);
     }
 
@@ -603,8 +672,8 @@ public class TaskProcessor {
             final @NonNull Task task) throws ParseException {
         assert parser !=  null;
         assert task != null;
-        assert !Thread.holdsLock(INTERNAL_LOCK);
-        assert parserLock.isHeldByCurrentThread();
+//        assert !Thread.holdsLock(INTERNAL_LOCK);
+//        assert parserLock.isHeldByCurrentThread();
         return parser.getResult(task);
 
     }
@@ -1121,8 +1190,8 @@ public class TaskProcessor {
         
         boolean setCurrentTask (Request reference) throws InterruptedException {
             boolean result = false;
-            assert !parserLock.isHeldByCurrentThread();
-            assert reference == null || reference.cache == null || !Thread.holdsLock(INTERNAL_LOCK);
+//            assert !parserLock.isHeldByCurrentThread();
+//            assert reference == null || reference.cache == null || !Thread.holdsLock(INTERNAL_LOCK);
             synchronized (CRR_LOCK) {
                 while (this.canceledReference!=null) {
                     CRR_LOCK.wait();

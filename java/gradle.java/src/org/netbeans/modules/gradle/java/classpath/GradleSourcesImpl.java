@@ -44,7 +44,6 @@ import org.netbeans.api.java.project.JavaProjectConstants;
 import org.netbeans.api.project.FileOwnerQuery;
 import org.netbeans.api.project.Project;
 import org.netbeans.api.project.ProjectManager;
-import org.netbeans.api.project.ProjectUtils;
 import org.netbeans.api.project.SourceGroup;
 import org.netbeans.api.project.Sources;
 import org.netbeans.spi.project.ProjectServiceProvider;
@@ -107,6 +106,8 @@ import org.openide.util.Pair;
 public class GradleSourcesImpl implements Sources, SourceGroupModifierImplementation {
 
     private static final Map<String, String> COMMON_NAMES = new HashMap<>();
+    public static final String SOURCE_TYPE_GROOVY    = "groovy";    //NOI18N
+    public static final String SOURCE_TYPE_GENERATED = "generated"; //NOI18N
 
     static {
         COMMON_NAMES.put("main.JAVA", "01main.java");
@@ -150,26 +151,25 @@ public class GradleSourcesImpl implements Sources, SourceGroupModifierImplementa
 
     @Override
     public synchronized SourceGroup[] getSourceGroups(String type) {
-        if (Sources.TYPE_GENERIC.equals(type)) {
-            return new SourceGroup[]{new GradleSourceGroup(proj.getProjectDirectory(), "ProjectRoot", //NOI18N
-                ProjectUtils.getInformation(proj).getDisplayName())};
-        } else {
-            checkChanges(false);
+        checkChanges(false);
+        SourceType stype = soureType2SourceType(type);
+        if (stype != null) {
             ArrayList<SourceGroup> ret = new ArrayList<>();
+            Set<File> processed = new HashSet();
             for (String group : gradleSources.keySet()) {
-                for (SourceType langType : SourceType.values()) {
-                    Set<File> dirs = gradleSources.get(group).getSourceDirs(langType);
-                    boolean unique = dirs.size() == 1;
-                    for (File dir : dirs) {
-                        if (dir.isDirectory()) {
-                            ret.add(createSourceGroup(unique, group, dir, langType));
-                        }
+                Set<File> dirs = gradleSources.get(group).getSourceDirs(stype);
+                boolean unique = dirs.size() == 1;
+                for (File dir : dirs) {
+                    if (!processed.contains(dir) && dir.isDirectory()) {
+                        processed.add(dir);
+                        ret.add(createSourceGroup(unique, group, dir, stype));
                     }
                 }
             }
             Collections.sort(ret, Comparator.comparing(SourceGroup::getName));
             return ret.toArray(new SourceGroup[ret.size()]);
         }
+        return new SourceGroup[0];
     }
 
     SourceGroup createSourceGroup(boolean unique, String group, File dir,
@@ -329,6 +329,16 @@ public class GradleSourcesImpl implements Sources, SourceGroupModifierImplementa
         GradleJavaProject gp = GradleJavaProject.get(proj);
         ret = ret || GradleBaseProject.get(proj).hasPlugins(type);
         return ret && gp.getSourceSets().containsKey(hint);
+    }
+
+    private static SourceType soureType2SourceType(String type) {
+        switch (type) {
+            case JavaProjectConstants.SOURCES_TYPE_JAVA: return SourceType.JAVA;
+            case JavaProjectConstants.SOURCES_TYPE_RESOURCES: return SourceType.RESOURCES;
+            case SOURCE_TYPE_GENERATED: return SourceType.GENERATED;
+            case SOURCE_TYPE_GROOVY: return SourceType.GROOVY; // Should be in the Groovy support module theoretically
+        }
+        return null;
     }
 
     private final class GradleSourceGroup implements SourceGroup {

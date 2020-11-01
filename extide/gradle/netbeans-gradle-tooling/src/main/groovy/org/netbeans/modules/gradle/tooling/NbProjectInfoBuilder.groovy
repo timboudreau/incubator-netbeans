@@ -99,6 +99,7 @@ class NbProjectInfoBuilder {
         model.info.project_buildDir = project.buildDir;
         model.info.project_projectDir = project.projectDir;
         model.info.project_rootDir = project.rootDir;
+        model.info.gradle_user_home = project.gradle.gradleUserHomeDir;
 
         def visibleConfigurations = configurationsToSave()
         model.info.configurations = storeSet(visibleConfigurations.collect() {conf -> conf.name})
@@ -251,6 +252,11 @@ class NbProjectInfoBuilder {
                             model.noteProblem(e)
                         }
                         model.info["sourceset_${sourceSet.name}_configuration_annotation"] = sourceSet.annotationProcessorConfigurationName;
+                    }
+                    beforeGradle('5.0') {
+                        if (model.info["sourceset_${sourceSet.name}_classpath_annotation"] == null || model.info["sourceset_${sourceSet.name}_classpath_annotation"].isEmpty()) {
+                            model.info["sourceset_${sourceSet.name}_classpath_annotation"] = storeSet(sourceSet.compileClasspath.files)
+                        }
                     }
                     model.info["sourceset_${sourceSet.name}_configuration_compile"] = sourceSet.compileConfigurationName;
                     model.info["sourceset_${sourceSet.name}_configuration_runtime"] = sourceSet.runtimeConfigurationName;

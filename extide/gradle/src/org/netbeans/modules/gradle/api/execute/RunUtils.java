@@ -51,17 +51,18 @@ import java.util.Set;
 import java.util.WeakHashMap;
 
 import org.netbeans.api.project.ui.OpenProjects;
-import org.netbeans.modules.gradle.GradleDistributionManager;
 import org.netbeans.modules.gradle.ProjectTrust;
+import org.netbeans.modules.gradle.api.execute.GradleDistributionManager.GradleDistribution;
 import org.netbeans.modules.gradle.api.execute.RunConfig.ExecFlag;
 import org.netbeans.modules.gradle.execute.TrustProjectPanel;
 import org.netbeans.modules.gradle.spi.GradleSettings;
+import org.netbeans.modules.gradle.spi.execute.GradleDistributionProvider;
 import org.netbeans.spi.project.SingleMethod;
 import org.openide.DialogDescriptor;
 import org.openide.DialogDisplayer;
 import org.openide.filesystems.FileObject;
-import org.openide.filesystems.FileUtil;
 import org.openide.loaders.DataObject;
+import org.openide.util.BaseUtilities;
 import org.openide.util.NbBundle.Messages;
 import org.openide.util.Pair;
 
@@ -100,6 +101,9 @@ public final class RunUtils {
             SingleMethod method = methods.iterator().next();
             files.add(method.getFile());
         }
+        if (files.isEmpty()) {
+            files.addAll(lookup.lookupAll(FileObject.class));
+        }
         return files.toArray(new FileObject[files.size()]);
     }
 
@@ -116,11 +120,11 @@ public final class RunUtils {
     public static ExecutorTask executeGradle(RunConfig config, String initialOutput) {
         LifecycleManager.getDefault().saveAll();
 
-        GradleExecutor exec = new GradleDaemonExecutor(config);
+        GradleDaemonExecutor exec = new GradleDaemonExecutor(config);
         ExecutorTask task = executeGradleImpl(config.getTaskDisplayName(), exec, initialOutput);
         GRADLE_TASKS.put(config, exec);
 
-        return task;
+        return exec.createTask(task);
     }
 
     /**
@@ -199,7 +203,7 @@ public final class RunUtils {
                 new ProxyNonSelectableInputOutput(io));
         if (initialOutput != null) {
             try {
-                if (IOColorPrint.isSupported(io)) {
+                if (IOColorPrint.isSupported(io) && IOColors.isSupported(io)) {
                     IOColorPrint.print(io, initialOutput, IOColors.getColor(io, IOColors.OutputType.LOG_DEBUG));
                 } else {
                     io.getOut().println(initialOutput);
@@ -275,40 +279,18 @@ public final class RunUtils {
         return args != null ? new GradleCommandLine(args) : null;
     }
 
+    @Deprecated
     public static File evaluateGradleDistribution(Project project, boolean forceCompatibility) {
-        File ret = null;
 
-        GradleSettings settings = GradleSettings.getDefault();
-        GradleDistributionManager mgr = GradleDistributionManager.get(settings.getGradleUserHome());
-
-        GradleBaseProject gbp = GradleBaseProject.get(project);
-
-        if ((gbp != null) && settings.isWrapperPreferred()) {
-            GradleDistributionManager.NbGradleVersion ngv = mgr.evaluateGradleWrapperDistribution(gbp.getRootDir());
-            if ( (ngv != null) && forceCompatibility && !ngv.isCompatibleWithSystemJava()) {
-                ngv = mgr.defaultToolingVersion();
-            }
-            if ((ngv != null) && ngv.isAvailable()) {
-                ret = ngv.distributionDir();
-            }
+        GradleDistributionProvider pvd = project != null ? project.getLookup().lookup(GradleDistributionProvider.class) : null;
+        GradleDistribution dist = pvd != null ? pvd.getGradleDistribution() : null;
+        if (dist != null && (dist.isCompatibleWithSystemJava() || !forceCompatibility)) {
+            return dist.getDistributionDir();
+        } else {
+            GradleSettings settings = GradleSettings.getDefault();
+            dist = GradleDistributionManager.get(dist != null ? dist.getGradleUserHome() : settings.getGradleUserHome()).defaultDistribution();
+            return dist.getDistributionDir();
         }
-
-        if ((ret == null) && settings.useCustomGradle() && !settings.getDistributionHome().isEmpty()) {
-            File f = FileUtil.normalizeFile(new File(settings.getDistributionHome()));
-            if (f.isDirectory()) {
-                ret = f;
-            }
-        }
-        if (ret == null) {
-            GradleDistributionManager.NbGradleVersion ngv = mgr.createVersion(settings.getGradleVersion());
-            if ( (ngv != null) && forceCompatibility && !ngv.isCompatibleWithSystemJava()) {
-                ngv = mgr.defaultToolingVersion();
-            }
-            if ((ngv != null) && ngv.isAvailable()) {
-                ret = ngv.distributionDir();
-            }
-        }
-        return ret;
     }
 
     private static boolean isOptionEnabled(Project project, String option, boolean defaultValue) {
@@ -322,6 +304,24 @@ public final class RunUtils {
             }
         }
         return false;
+    }
+
+    /**
+     * Replace the tokens in <code>argLine</code> provided by the <code>project</code> for
+     * the action using the given context;
+     * 
+     * @param project the that holds the {@link ReplaceTokenProvider}-s.
+     * @param argLine a string which might hold tokens to be replaced.
+     * @param action  the action name to do the replacement for. It can be <code>null</code>
+     * @param context the context of the action.
+     *
+     * @return the <code>argLine</code> where the tokens are replaced.
+     * @since 2.6
+     */
+    public static String[] evaluateActionArgs(Project project, String action, String argLine, Lookup context) {
+        ReplaceTokenProvider tokenProvider = project.getLookup().lookup(ReplaceTokenProvider.class);
+        String repLine = ReplaceTokenProvider.replaceTokens(argLine, tokenProvider.createReplacements(action, context));
+        return BaseUtilities.parseParameters(repLine);
     }
 
     /**
